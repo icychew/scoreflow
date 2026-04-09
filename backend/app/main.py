@@ -199,6 +199,11 @@ def _run_pipeline_thread(job_id: str, audio_path: Path) -> None:
 # ── Routes ─────────────────────────────────────────────────────────────────────
 
 
+@app.get("/")
+def root() -> dict[str, str]:
+    return {"service": "ScoreFlow API", "status": "ok", "docs": "/docs"}
+
+
 @app.get("/health")
 def health() -> dict[str, str]:
     return {"status": "ok"}
