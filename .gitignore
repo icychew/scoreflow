@@ -1,0 +1,31 @@
+# Python
+__pycache__/
+*.py[cod]
+*.so
+.venv/
+venv/
+.env
+*.egg-info/
+dist/
+build/
+
+# Pipeline outputs (large generated files)
+backend/results/
+backend/test_input.wav
+backend/*.wav
+backend/*.mp3
+backend/*.flac
+
+# ML model weights (downloaded on first run, hundreds of MB)
+backend/.cache/
+~/.cache/torch/
+
+# Node / Next.js
+frontend/node_modules/
+frontend/.next/
+frontend/out/
+frontend/.vercel/
+
+# OS
+.DS_Store
+Thumbs.db
