@@ -166,10 +166,23 @@ def _run_pipeline_thread(job_id: str, audio_path: Path) -> None:
                 if s.status in ("pending", "running"):
                     s.status = "done"
 
+        # Generate PDFs from MusicXML files
+        from pipeline.score_generator import generate_pdf_from_musicxml
+        for stem, musicxml_path in result.scores.items():
+            if Path(musicxml_path).exists():
+                pdf_path = output_dir / "scores" / f"{stem}.pdf"
+                try:
+                    generate_pdf_from_musicxml(Path(musicxml_path), pdf_path)
+                except Exception as pdf_exc:
+                    logger.warning("PDF generation skipped for %s: %s", stem, pdf_exc)
+
         # Build scores dict — which stems have which formats available
         scores: dict[str, list[str]] = {}
         for stem, path in result.scores.items():
             fmts = []
+            pdf_path = output_dir / "scores" / f"{stem}.pdf"
+            if pdf_path.exists():
+                fmts.append("pdf")
             if Path(path).exists():
                 fmts.append("musicxml")
             midi_path = output_dir / "quantized" / f"{stem}.mid"
@@ -263,7 +276,11 @@ def download_file(job_id: str, stem: str, fmt: str) -> FileResponse:
 
     output_dir = JOBS_DIR / job_id / "output"
 
-    if fmt == "musicxml":
+    if fmt == "pdf":
+        path = output_dir / "scores" / f"{stem}.pdf"
+        media_type = "application/pdf"
+        filename = f"{stem}.pdf"
+    elif fmt == "musicxml":
         path = output_dir / "scores" / f"{stem}.musicxml"
         media_type = "application/xml"
         filename = f"{stem}.musicxml"

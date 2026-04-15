@@ -1,8 +1,9 @@
 import { downloadUrl } from "@/lib/api";
 
 const FORMAT_LABELS: Record<string, { label: string; ext: string }> = {
+  pdf:      { label: "PDF Score", ext: ".pdf" },
+  mid:      { label: "MIDI", ext: ".mid" },
   musicxml: { label: "MusicXML", ext: ".musicxml" },
-  mid: { label: "MIDI", ext: ".mid" },
 };
 
 const STEM_ICONS: Record<string, string> = {

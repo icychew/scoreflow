@@ -277,6 +277,70 @@ def generate_score(
     )
 
 
+def generate_pdf_from_musicxml(musicxml_path: Path, pdf_path: Path) -> Path:
+    """Render a MusicXML file to a multi-page PDF using verovio + cairosvg.
+
+    Args:
+        musicxml_path: Path to the source MusicXML file.
+        pdf_path: Destination path for the generated PDF.
+
+    Returns:
+        pdf_path on success.
+
+    Raises:
+        ScoreGenerationError: If rendering or conversion fails.
+    """
+    try:
+        import io
+        import cairosvg
+        import verovio
+        from pypdf import PdfWriter, PdfReader
+    except ImportError as exc:
+        raise ScoreGenerationError(
+            "PDF dependencies missing — install verovio, cairosvg, pypdf"
+        ) from exc
+
+    try:
+        tk = verovio.toolkit()
+        tk.setOptions({
+            "pageWidth": 2100,        # A4 width  (tenths: 210 mm × 10)
+            "pageHeight": 2970,       # A4 height (tenths: 297 mm × 10)
+            "scale": 40,              # 40 % scale gives comfortable line spacing
+            "adjustPageWidth": True,  # let verovio fit content width
+            "adjustPageHeight": False,
+            "mmOutput": True,
+        })
+        tk.loadFile(str(musicxml_path))
+        page_count = tk.getPageCount()
+        logger.info("Rendering %d page(s) to PDF: %s", page_count, pdf_path.name)
+
+        if page_count == 0:
+            raise ScoreGenerationError("verovio reported 0 pages — invalid MusicXML?")
+
+        pdf_path.parent.mkdir(parents=True, exist_ok=True)
+
+        if page_count == 1:
+            svg = tk.renderToSVG(1)
+            pdf_path.write_bytes(cairosvg.svg2pdf(bytestring=svg.encode("utf-8")))
+        else:
+            writer = PdfWriter()
+            for page_no in range(1, page_count + 1):
+                svg = tk.renderToSVG(page_no)
+                page_pdf = cairosvg.svg2pdf(bytestring=svg.encode("utf-8"))
+                reader = PdfReader(io.BytesIO(page_pdf))
+                writer.add_page(reader.pages[0])
+            with open(pdf_path, "wb") as fh:
+                writer.write(fh)
+
+        logger.info("PDF written: %s (%.1f KB)", pdf_path.name, pdf_path.stat().st_size / 1024)
+        return pdf_path
+
+    except ScoreGenerationError:
+        raise
+    except Exception as exc:
+        raise ScoreGenerationError(f"PDF rendering failed: {exc}") from exc
+
+
 def generate_scores(
     midi_files: dict[str, Path],
     output_dir: Path,
