@@ -1,3 +1,13 @@
+---
+title: ScoreFlow API
+emoji: 🎵
+colorFrom: violet
+colorTo: blue
+sdk: docker
+app_port: 7860
+pinned: false
+---
+
 # ScoreFlow Backend
 
 AI-powered audio-to-sheet-music conversion pipeline and API.
