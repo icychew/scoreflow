@@ -134,10 +134,61 @@ def _count_measures(score) -> int:
     return len(measures)
 
 
+def _build_grand_staff_score(score, title: str | None = None):
+    """Rearrange a single-part score into treble + bass grand staff (for piano).
+
+    Notes with MIDI pitch >= 60 (middle C and above) go to the treble part;
+    notes below 60 go to the bass part.
+    """
+    from music21 import stream, clef as m21_clef, instrument as m21_instrument
+
+    treble_part = stream.Part()
+    treble_part.partName = "Piano (Treble)"
+    treble_part.insert(0, m21_clef.TrebleClef())
+    treble_part.insert(0, m21_instrument.Piano())
+
+    bass_part = stream.Part()
+    bass_part.partName = "Piano (Bass)"
+    bass_part.insert(0, m21_clef.BassClef())
+    bass_part.insert(0, m21_instrument.Piano())
+
+    from music21 import note as m21_note, chord as m21_chord
+
+    for element in score.flat.notesAndRests:
+        if isinstance(element, m21_note.Note):
+            target = treble_part if element.pitch.midi >= 60 else bass_part
+            target.insert(element.offset, element)
+        elif isinstance(element, m21_chord.Chord):
+            # Split chord: high notes to treble, low notes to bass
+            treble_pitches = [p for p in element.pitches if p.midi >= 60]
+            bass_pitches = [p for p in element.pitches if p.midi < 60]
+            if treble_pitches:
+                c = m21_chord.Chord(treble_pitches, quarterLength=element.quarterLength)
+                c.volume = element.volume
+                treble_part.insert(element.offset, c)
+            if bass_pitches:
+                c = m21_chord.Chord(bass_pitches, quarterLength=element.quarterLength)
+                c.volume = element.volume
+                bass_part.insert(element.offset, c)
+        else:
+            # Rest — add to both
+            treble_part.insert(element.offset, element)
+
+    grand_score = stream.Score()
+    if title:
+        from music21 import metadata
+        grand_score.metadata = metadata.Metadata()
+        grand_score.metadata.title = title
+    grand_score.append(treble_part)
+    grand_score.append(bass_part)
+    return grand_score
+
+
 def generate_score(
     input_path: Path,
     output_path: Path,
     config: ScoreConfig | None = None,
+    stem_name: str | None = None,
 ) -> ScoreResult:
     """Generate MusicXML from a quantized MIDI file.
 
@@ -243,6 +294,14 @@ def generate_score(
                     break
 
     measure_count = _count_measures(score)
+
+    # For piano stems: reformat as grand staff (treble + bass)
+    if stem_name == "piano":
+        try:
+            score = _build_grand_staff_score(score, title=config.title if config else None)
+            logger.info("Piano score converted to grand staff layout")
+        except Exception as exc:
+            logger.warning("Grand staff conversion failed, using single staff: %s", exc)
 
     # Write MusicXML
     output_path.parent.mkdir(parents=True, exist_ok=True)

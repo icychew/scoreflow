@@ -76,6 +76,22 @@ BASS_CONFIG = TranscriptionConfig(
     maximum_frequency=400.0,  # ~G4
 )
 
+GUITAR_CONFIG = TranscriptionConfig(
+    onset_threshold=0.4,
+    frame_threshold=0.25,
+    minimum_note_length=60.0,
+    minimum_frequency=82.0,   # E2 — open low E string
+    maximum_frequency=1319.0, # E6 — highest fret on standard guitar
+)
+
+OTHER_CONFIG = TranscriptionConfig(
+    onset_threshold=0.55,     # higher threshold reduces false-positive notes from mixed content
+    frame_threshold=0.35,
+    minimum_note_length=80.0,
+    minimum_frequency=100.0,
+    maximum_frequency=2000.0,
+)
+
 DEFAULT_CONFIG = TranscriptionConfig()
 
 
@@ -237,8 +253,9 @@ def transcribe_stems(
     presets: dict[str, TranscriptionConfig] = {
         "vocals": VOCAL_CONFIG,
         "piano": PIANO_CONFIG,
-        "other": DEFAULT_CONFIG,
         "bass": BASS_CONFIG,
+        "guitar": GUITAR_CONFIG,
+        "other": OTHER_CONFIG,
     }
 
     results: dict[str, TranscriptionResult] = {}

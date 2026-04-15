@@ -130,7 +130,7 @@ def _run_pipeline_thread(job_id: str, audio_path: Path) -> None:
         result = run_pipeline(
             input_path=audio_path,
             output_dir=output_dir,
-            model_name="htdemucs",
+            model_name="htdemucs_6s",
             quantization_config=QuantizationConfig(),
         )
 

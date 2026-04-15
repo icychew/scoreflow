@@ -19,7 +19,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from pipeline.separator import separate, SeparationError
-from pipeline.transcriber import transcribe, TranscriptionError, TranscriptionConfig, VOCAL_CONFIG, PIANO_CONFIG, BASS_CONFIG
+from pipeline.transcriber import transcribe, TranscriptionError, TranscriptionConfig, VOCAL_CONFIG, PIANO_CONFIG, BASS_CONFIG, GUITAR_CONFIG, OTHER_CONFIG
 from pipeline.quantizer import quantize, QuantizationError, QuantizationConfig
 from pipeline.score_generator import generate_score, ScoreGenerationError, EmptyMIDIError, ScoreConfig
 
@@ -28,12 +28,40 @@ logger = logging.getLogger(__name__)
 # Stems that should skip pitch-based transcription
 SKIP_TRANSCRIPTION_STEMS = {"drums"}
 
+# Minimum note count after transcription — stems below this are too noisy to score
+MIN_NOTES_THRESHOLD = 10
+
 # Transcription presets by stem name
 TRANSCRIPTION_PRESETS: dict[str, TranscriptionConfig] = {
     "vocals": VOCAL_CONFIG,
     "piano": PIANO_CONFIG,
     "bass": BASS_CONFIG,
+    "guitar": GUITAR_CONFIG,
+    "other": OTHER_CONFIG,
 }
+
+# Per-stem quantization configs: melodic/polyphonic stems get lighter snapping
+QUANTIZATION_CONFIGS: dict[str, QuantizationConfig] = {
+    "vocals": QuantizationConfig(subdivision=8, strength=0.7),
+    "guitar": QuantizationConfig(subdivision=8, strength=0.7),
+    "other":  QuantizationConfig(subdivision=8, strength=0.7),
+    "bass":   QuantizationConfig(subdivision=8, strength=0.9),
+    "piano":  QuantizationConfig(subdivision=16, strength=0.8),
+}
+
+
+def _detect_tempo(input_path: Path) -> float:
+    """Detect song BPM using librosa beat tracking. Returns 120.0 on failure."""
+    try:
+        import librosa
+        y, sr = librosa.load(str(input_path), sr=None, mono=True, duration=60.0)
+        tempo, _ = librosa.beat.beat_track(y=y, sr=sr)
+        bpm = float(tempo) if hasattr(tempo, '__float__') else float(tempo[0])
+        logger.info("Detected tempo: %.1f BPM", bpm)
+        return bpm if 40.0 <= bpm <= 240.0 else 120.0
+    except Exception as exc:
+        logger.warning("Tempo detection failed (%s), defaulting to 120 BPM", exc)
+        return 120.0
 
 
 @dataclass
@@ -141,6 +169,9 @@ def run_pipeline(
         total_time_seconds=0.0,
     )
 
+    # Detect song tempo before separation so all stems use the real BPM
+    detected_bpm = _detect_tempo(input_path)
+
     # Stage 1: Source Separation
     logger.info("=" * 50)
     logger.info("STAGE 1: Source Separation (Demucs %s)", model_name)
@@ -208,13 +239,56 @@ def run_pipeline(
             result.reports.append(report)
             continue
 
-        # Stage 3: Quantization
+        # Quality gate: skip stems with too few notes (too noisy to produce a readable score)
+        if trans_result.note_count < MIN_NOTES_THRESHOLD:
+            logger.warning(
+                "Skipping '%s': only %d notes detected (threshold: %d) — stem too noisy",
+                stem_name, trans_result.note_count, MIN_NOTES_THRESHOLD,
+            )
+            report.stages.append(StageStatus(
+                stage="quantization",
+                success=False,
+                error=f"skipped — only {trans_result.note_count} notes detected (too noisy)",
+            ))
+            report.stages.append(StageStatus(
+                stage="score_generation",
+                success=False,
+                error="skipped — stem too noisy",
+            ))
+            result.reports.append(report)
+            continue
+
+        # Stage 3: Quantization — use per-stem config with detected BPM
         logger.info("STAGE 3: Quantizing '%s'", stem_name)
 
         quantized_path = quantized_dir / f"{stem_name}.mid"
 
+        # Build quantization config: prefer per-stem preset, then caller override, then default
+        stem_quant = QUANTIZATION_CONFIGS.get(stem_name)
+        if quantization_config is not None:
+            # Caller provided a config — honour it but inject detected tempo
+            effective_quant = QuantizationConfig(
+                subdivision=quantization_config.subdivision,
+                strength=quantization_config.strength,
+                velocity_min=quantization_config.velocity_min,
+                velocity_max=quantization_config.velocity_max,
+                normalize_velocity=quantization_config.normalize_velocity,
+                remove_overlaps=quantization_config.remove_overlaps,
+                min_gap_threshold=quantization_config.min_gap_threshold,
+                min_note_duration=quantization_config.min_note_duration,
+                tempo=detected_bpm,
+            )
+        elif stem_quant is not None:
+            effective_quant = QuantizationConfig(
+                subdivision=stem_quant.subdivision,
+                strength=stem_quant.strength,
+                tempo=detected_bpm,
+            )
+        else:
+            effective_quant = QuantizationConfig(tempo=detected_bpm)
+
         try:
-            quant_result = quantize(midi_path, quantized_path, config=quantization_config)
+            quant_result = quantize(midi_path, quantized_path, config=effective_quant)
             result.quantized_midi[stem_name] = quant_result.output_path
             report.stages.append(StageStatus(
                 stage="quantization",
@@ -246,7 +320,7 @@ def run_pipeline(
             stem_score_config = ScoreConfig(title=f"{stem_name.capitalize()} Part")
 
         try:
-            score_result = generate_score(quantized_path, score_path, config=stem_score_config)
+            score_result = generate_score(quantized_path, score_path, config=stem_score_config, stem_name=stem_name)
             result.scores[stem_name] = score_result.output_path
             report.stages.append(StageStatus(
                 stage="score_generation",

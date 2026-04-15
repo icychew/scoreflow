@@ -17,3 +17,6 @@ pydantic>=2.5.0
 verovio>=3.15.0
 cairosvg>=2.7.0
 pypdf>=4.0.0
+
+# Tempo / beat detection
+librosa>=0.10.0
