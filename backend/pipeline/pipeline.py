@@ -56,7 +56,8 @@ def _detect_tempo(input_path: Path) -> float:
         import librosa
         y, sr = librosa.load(str(input_path), sr=None, mono=True, duration=60.0)
         tempo, _ = librosa.beat.beat_track(y=y, sr=sr)
-        bpm = float(tempo) if hasattr(tempo, '__float__') else float(tempo[0])
+        import numpy as np
+        bpm = float(np.asarray(tempo).flat[0])
         logger.info("Detected tempo: %.1f BPM", bpm)
         return bpm if 40.0 <= bpm <= 240.0 else 120.0
     except Exception as exc:

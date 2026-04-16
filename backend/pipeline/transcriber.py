@@ -77,9 +77,9 @@ BASS_CONFIG = TranscriptionConfig(
 )
 
 GUITAR_CONFIG = TranscriptionConfig(
-    onset_threshold=0.4,
-    frame_threshold=0.25,
-    minimum_note_length=60.0,
+    onset_threshold=0.55,      # raised from 0.4 — reduces false notes from strummed chords
+    frame_threshold=0.3,
+    minimum_note_length=100.0, # strums are transients; filter very short events
     minimum_frequency=82.0,   # E2 — open low E string
     maximum_frequency=1319.0, # E6 — highest fret on standard guitar
 )
