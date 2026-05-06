@@ -85,6 +85,8 @@ export default function JobPage() {
         <ResultsPanel
           jobId={id}
           scores={job.scores}
+          omrScores={job.omr_scores ?? {}}
+          refinementScores={job.refinement_scores ?? {}}
           totalTime={job.total_time_seconds}
         />
       )}

@@ -20,6 +20,11 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
               ScoreFlow
             </a>
             <span className="text-sm text-slate-500">Audio → Sheet Music</span>
+            <div className="ml-auto">
+              <a href="/viewer" className="text-sm font-medium text-slate-400 hover:text-violet-300 transition-colors">
+                🎵 Viewer
+              </a>
+            </div>
           </div>
         </header>
         <main className="mx-auto max-w-4xl px-6 py-10">{children}</main>

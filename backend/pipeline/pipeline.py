@@ -109,6 +109,7 @@ class PipelineResult:
     quantized_midi: dict[str, Path] = field(default_factory=dict)
     scores: dict[str, Path] = field(default_factory=dict)
     reports: list[StemReport] = field(default_factory=list)
+    refinement_scores: dict[str, float] = field(default_factory=dict)  # stem → mean chroma similarity
 
     @property
     def summary(self) -> str:
@@ -123,6 +124,7 @@ class PipelineResult:
             f"MIDI transcribed: {len(self.midi)}",
             f"MIDI quantized: {len(self.quantized_midi)}",
             f"Scores generated: {len(self.scores)}",
+            f"Stems refined: {len(self.refinement_scores)}",
             f"",
         ]
 
@@ -144,15 +146,21 @@ def run_pipeline(
     model_name: str = "htdemucs",
     quantization_config: QuantizationConfig | None = None,
     score_config: ScoreConfig | None = None,
+    quality: str = "standard",
+    refine: bool = False,
 ) -> PipelineResult:
     """Run the full audio-to-score pipeline.
 
     Args:
         input_path: Path to the input audio file.
         output_dir: Base directory for all output files.
-        model_name: Demucs model name for separation.
+        model_name: Demucs model name for separation. Ignored when quality='high'.
         quantization_config: Config for MIDI quantization. Uses defaults if None.
         score_config: Config for score generation. Uses defaults if None.
+        quality: 'standard' uses Demucs + Basic Pitch; 'high' uses BS-RoFormer +
+            piano_transcription_inference for the piano stem.
+        refine: If True, run the chroma-based refinement loop after score generation
+            (synthesize MIDI → compare chroma → re-transcribe weak bars).
 
     Returns:
         PipelineResult with paths to all generated outputs and per-stem reports.
@@ -179,7 +187,7 @@ def run_pipeline(
     logger.info("=" * 50)
 
     try:
-        sep_result = separate(input_path, stems_dir, model_name=model_name)
+        sep_result = separate(input_path, stems_dir, model_name=model_name, quality=quality)
         result.stems = sep_result.stems
         logger.info(
             "Separation complete: %d stems in %.1fs",
@@ -218,7 +226,7 @@ def run_pipeline(
         trans_config = TRANSCRIPTION_PRESETS.get(stem_name)
 
         try:
-            trans_result = transcribe(stem_path, midi_path, config=trans_config)
+            trans_result = transcribe(stem_path, midi_path, config=trans_config, quality=quality, stem_name=stem_name)
             result.midi[stem_name] = trans_result.midi_path
             report.stages.append(StageStatus(
                 stage="transcription",
@@ -348,6 +356,44 @@ def run_pipeline(
                 success=False,
                 error=str(exc),
             ))
+
+        # Stage 5 (optional): Chroma-based refinement
+        if refine and stem_name in result.scores:
+            logger.info("STAGE 5: Refining score for '%s'", stem_name)
+            try:
+                from pipeline.refiner import refine as refine_stem
+                refine_dir = output_dir / "refined"
+                ref_result = refine_stem(
+                    stem_path=stem_path,
+                    midi_path=quantized_path,
+                    musicxml_path=score_path,
+                    output_dir=refine_dir,
+                    tempo_bpm=detected_bpm,
+                    stem_name=stem_name,
+                )
+                result.refinement_scores[stem_name] = ref_result.mean_chroma_similarity
+                # Promote refined MusicXML as the authoritative score if any bars were fixed
+                if ref_result.bars_refined > 0:
+                    result.scores[stem_name] = ref_result.refined_musicxml_path
+                report.stages.append(StageStatus(
+                    stage="refinement",
+                    success=True,
+                    output_path=str(ref_result.refined_musicxml_path),
+                ))
+                logger.info(
+                    "Refinement complete for '%s': bars_refined=%d/%d, mean_similarity=%.3f",
+                    stem_name,
+                    ref_result.bars_refined,
+                    ref_result.bars_checked,
+                    ref_result.mean_chroma_similarity,
+                )
+            except Exception as exc:
+                logger.warning("Refinement failed for '%s': %s", stem_name, exc)
+                report.stages.append(StageStatus(
+                    stage="refinement",
+                    success=False,
+                    error=str(exc),
+                ))
 
         result.reports.append(report)
 

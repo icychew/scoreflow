@@ -19,7 +19,7 @@ from enum import Enum
 from pathlib import Path
 from typing import Any
 
-from fastapi import FastAPI, File, HTTPException, UploadFile
+from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
@@ -63,6 +63,8 @@ class JobState(BaseModel):
     scores: dict[str, list[str]] = {}  # stem → list of available formats
     error: str = ""
     total_time_seconds: float = 0.0
+    omr_scores: dict[str, float] = {}  # stem → 0.0–1.0 confidence, or -1.0 = not run
+    refinement_scores: dict[str, float] = {}  # stem → mean chroma similarity 0.0–1.0
 
 
 _JOBS: dict[str, JobState] = {}
@@ -77,12 +79,24 @@ def _get_job(job_id: str) -> JobState:
     return job
 
 
+# ── Helpers ───────────────────────────────────────────────────────────────────
+
+def _count_midi_notes_approx(midi_path: Path) -> int:
+    """Count notes in a MIDI file — used to supply expected_note_count to OMR."""
+    try:
+        import pretty_midi
+        pm = pretty_midi.PrettyMIDI(str(midi_path))
+        return sum(len(inst.notes) for inst in pm.instruments)
+    except Exception:
+        return 0
+
+
 # ── Pipeline runner ────────────────────────────────────────────────────────────
 
-STAGE_NAMES = ["separation", "transcription", "quantization", "score_generation"]
+STAGE_NAMES = ["separation", "transcription", "quantization", "score_generation", "refinement"]
 
 
-def _run_pipeline_thread(job_id: str, audio_path: Path) -> None:
+def _run_pipeline_thread(job_id: str, audio_path: Path, quality: str = "standard", refine: bool = False) -> None:
     """Execute the pipeline in a background thread, updating job state."""
     from pipeline.pipeline import run_pipeline
     from pipeline.quantizer import QuantizationConfig
@@ -132,6 +146,8 @@ def _run_pipeline_thread(job_id: str, audio_path: Path) -> None:
             output_dir=output_dir,
             model_name="htdemucs_6s",
             quantization_config=QuantizationConfig(),
+            quality=quality,
+            refine=refine,
         )
 
         # Map pipeline result stages to our stage tracking
@@ -140,6 +156,7 @@ def _run_pipeline_thread(job_id: str, audio_path: Path) -> None:
             "transcription": "transcription",
             "quantization": "quantization",
             "score_generation": "score_generation",
+            "refinement": "refinement",
         }
 
         for report in result.reports:
@@ -160,14 +177,20 @@ def _run_pipeline_thread(job_id: str, audio_path: Path) -> None:
                     else:
                         _fail_stage(stage_key, f"{report.stem_name}: {err}")
 
-        # Mark all pending stages done (they may not have had reports)
+        # Mark all pending stages done (they may not have had reports).
+        # If refinement was disabled, mark it skipped rather than done.
         with _JOBS_LOCK:
             for s in _JOBS[job_id].stages:
                 if s.status in ("pending", "running"):
-                    s.status = "done"
+                    if s.name == "refinement" and not refine:
+                        s.status = "skipped"
+                        s.message = "refinement not requested"
+                    else:
+                        s.status = "done"
 
         # Generate PDFs from MusicXML files
-        from pipeline.score_generator import generate_pdf_from_musicxml
+        from pipeline.score_generator import generate_pdf_from_musicxml, render_score_to_png
+        from pipeline.omr_validator import validate_score as omr_validate
         for stem, musicxml_path in result.scores.items():
             if Path(musicxml_path).exists():
                 pdf_path = output_dir / "scores" / f"{stem}.pdf"
@@ -175,6 +198,17 @@ def _run_pipeline_thread(job_id: str, audio_path: Path) -> None:
                     generate_pdf_from_musicxml(Path(musicxml_path), pdf_path)
                 except Exception as pdf_exc:
                     logger.warning("PDF generation skipped for %s: %s", stem, pdf_exc)
+
+        # OMR validation — render page 1 of each score to PNG, run Roboflow inference
+        omr_scores: dict[str, float] = {}
+        for stem, musicxml_path in result.scores.items():
+            if not Path(musicxml_path).exists():
+                continue
+            png_path = output_dir / "scores" / f"{stem}_page1.png"
+            rendered = render_score_to_png(Path(musicxml_path), png_path)
+            if rendered:
+                expected = _count_midi_notes_approx(output_dir / "quantized" / f"{stem}.mid")
+                omr_scores[stem] = omr_validate(png_path, expected)
 
         # Build scores dict — which stems have which formats available
         scores: dict[str, list[str]] = {}
@@ -194,6 +228,8 @@ def _run_pipeline_thread(job_id: str, audio_path: Path) -> None:
         with _JOBS_LOCK:
             _JOBS[job_id].status = JobStatus.DONE
             _JOBS[job_id].scores = scores
+            _JOBS[job_id].omr_scores = omr_scores
+            _JOBS[job_id].refinement_scores = result.refinement_scores
             _JOBS[job_id].total_time_seconds = result.total_time_seconds
             _JOBS[job_id].current_stage = "done"
 
@@ -223,8 +259,18 @@ def health() -> dict[str, str]:
 
 
 @app.post("/api/jobs", status_code=201)
-async def create_job(file: UploadFile = File(...)) -> dict[str, Any]:
-    """Upload an audio file and start pipeline processing."""
+async def create_job(
+    file: UploadFile = File(...),
+    quality: str = Form("standard"),
+    refine: bool = Form(False),
+) -> dict[str, Any]:
+    """Upload an audio file and start pipeline processing.
+
+    quality: 'standard' (Demucs + Basic Pitch) or 'high' (BS-RoFormer + piano_transcription).
+    refine: If True, run chroma-based refinement loop after score generation.
+    """
+    if quality not in ("standard", "high"):
+        quality = "standard"
     suffix = Path(file.filename or "").suffix.lower()
     if suffix not in ALLOWED_EXTENSIONS:
         raise HTTPException(
@@ -250,7 +296,7 @@ async def create_job(file: UploadFile = File(...)) -> dict[str, Any]:
 
     thread = threading.Thread(
         target=_run_pipeline_thread,
-        args=(job_id, audio_path),
+        args=(job_id, audio_path, quality, refine),
         daemon=True,
         name=f"pipeline-{job_id[:8]}",
     )

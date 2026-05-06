@@ -2,7 +2,7 @@ const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
 // ngrok free tier shows an interstitial page for browser traffic.
 // This header bypasses it for all API fetch calls.
-const NGROK_HEADERS: Record<string, string> = {
+export const NGROK_HEADERS: Record<string, string> = {
   "ngrok-skip-browser-warning": "true",
 };
 
@@ -20,11 +20,21 @@ export interface JobState {
   scores: Record<string, string[]>; // stem → ["musicxml", "mid"]
   error: string;
   total_time_seconds: number;
+  omr_scores?: Record<string, number>; // stem → 0.0–1.0 confidence, -1.0 = not run
+  refinement_scores?: Record<string, number>; // stem → mean chroma similarity 0.0–1.0
 }
 
-export async function uploadAudio(file: File): Promise<{ job_id: string; status: string }> {
+export type Quality = "standard" | "high";
+
+export async function uploadAudio(
+  file: File,
+  quality: Quality = "standard",
+  refine: boolean = false,
+): Promise<{ job_id: string; status: string }> {
   const form = new FormData();
   form.append("file", file);
+  form.append("quality", quality);
+  form.append("refine", refine ? "true" : "false");
   const res = await fetch(`${API_URL}/api/jobs`, {
     method: "POST",
     body: form,

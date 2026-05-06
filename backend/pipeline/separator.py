@@ -6,6 +6,7 @@ Optionally supports 6-stem separation (guitar, piano) with htdemucs_6s.
 """
 
 import logging
+import shutil
 import time
 from dataclasses import dataclass
 from pathlib import Path
@@ -109,17 +110,94 @@ def _load_model(model_name: str, device: torch.device):
     return model
 
 
+def _separate_high_quality(input_path: Path, output_dir: Path) -> SeparationResult:
+    """HQ separation: BS-RoFormer vocal isolation + Demucs 6s on the instrumental."""
+    try:
+        from audio_separator.separator import Separator
+    except ImportError as exc:
+        raise SeparationError(
+            "audio-separator is not installed. Run: pip install audio-separator>=0.23.0"
+        ) from exc
+
+    start_time = time.monotonic()
+    _validate_input(input_path)
+
+    # Get audio duration for metadata
+    try:
+        waveform, sr = _load_audio(input_path)
+        duration = waveform.shape[1] / sr
+    except Exception:
+        duration = 0.0
+
+    hq_temp = output_dir / "_hq_temp"
+    hq_temp.mkdir(parents=True, exist_ok=True)
+
+    # Step 1: BS-RoFormer for high-quality vocal isolation
+    logger.info("HQ separation step 1: BS-RoFormer vocal isolation")
+    sep = Separator(output_dir=str(hq_temp), output_format="wav", log_level=logging.WARNING)
+    sep.load_model("model_bs_roformer_ep_317_sdr_12.9755.ckpt")
+    bs_outputs = sep.separate(str(input_path))
+
+    vocals_src: Path | None = None
+    instr_src: Path | None = None
+    for path_str in bs_outputs:
+        p = Path(path_str)
+        lower = p.name.lower()
+        if "vocal" in lower and "no" not in lower:
+            vocals_src = p
+        else:
+            instr_src = p
+
+    if vocals_src is None or instr_src is None:
+        raise SeparationError(
+            f"BS-RoFormer did not produce expected stems. Got: {[Path(f).name for f in bs_outputs]}"
+        )
+
+    # Step 2: Demucs htdemucs_6s on the instrumental for the remaining stems
+    logger.info("HQ separation step 2: Demucs 6s on instrumental stem")
+    demucs_dir = hq_temp / "demucs"
+    instr_result = separate(instr_src, demucs_dir, model_name="htdemucs_6s", quality="standard")
+
+    # Assemble final stems: BS-RoFormer vocals + Demucs instruments
+    output_dir.mkdir(parents=True, exist_ok=True)
+    stems: dict[str, Path] = {}
+
+    vocals_dest = output_dir / "vocals.wav"
+    shutil.copy2(vocals_src, vocals_dest)
+    stems["vocals"] = vocals_dest
+
+    for stem_name, stem_path in instr_result.stems.items():
+        if stem_name == "vocals":
+            continue  # prefer BS-RoFormer vocals
+        dest = output_dir / f"{stem_name}.wav"
+        shutil.copy2(stem_path, dest)
+        stems[stem_name] = dest
+
+    processing_time = time.monotonic() - start_time
+    logger.info("HQ separation complete in %.1fs — %d stems", processing_time, len(stems))
+
+    return SeparationResult(
+        stems=stems,
+        model_name="bs_roformer+htdemucs_6s",
+        sample_rate=instr_result.sample_rate,
+        duration_seconds=duration,
+        processing_time_seconds=processing_time,
+    )
+
+
 def separate(
     input_path: Path,
     output_dir: Path,
     model_name: str = "htdemucs",
+    quality: str = "standard",
 ) -> SeparationResult:
-    """Separate audio into instrument stems using Demucs.
+    """Separate audio into instrument stems using Demucs (or BS-RoFormer in HQ mode).
 
     Args:
         input_path: Path to the input audio file (MP3/WAV/FLAC).
         output_dir: Directory to write separated stem WAV files.
-        model_name: Demucs model name (default: htdemucs).
+        model_name: Demucs model name (default: htdemucs). Ignored when quality='high'.
+        quality: 'standard' uses Demucs; 'high' uses BS-RoFormer + Demucs 6s.
 
     Returns:
         SeparationResult with paths to output stems and metadata.
@@ -130,6 +208,9 @@ def separate(
         CorruptedAudioError: If the audio file cannot be loaded.
         SeparationError: For other processing errors.
     """
+    if quality == "high":
+        return _separate_high_quality(input_path, output_dir)
+
     from demucs.apply import apply_model
 
     _validate_input(input_path)

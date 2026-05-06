@@ -9,9 +9,13 @@
     "lint": "eslint"
   },
   "dependencies": {
+    "@tonejs/midi": "^2.0.6",
+    "abcjs": "^6.4.4",
     "next": "16.2.3",
+    "opensheetmusicdisplay": "^1.9.1",
     "react": "19.2.4",
-    "react-dom": "19.2.4"
+    "react-dom": "19.2.4",
+    "tone": "^14.7.77"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4",

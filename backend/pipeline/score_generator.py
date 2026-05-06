@@ -400,6 +400,53 @@ def generate_pdf_from_musicxml(musicxml_path: Path, pdf_path: Path) -> Path:
         raise ScoreGenerationError(f"PDF rendering failed: {exc}") from exc
 
 
+def render_score_to_png(musicxml_path: Path, png_path: Path, page: int = 1) -> bool:
+    """Render a single page of a MusicXML score to PNG using verovio + cairosvg.
+
+    Reuses the same verovio toolkit and options as generate_pdf_from_musicxml.
+    Only page 1 is rendered by default — sufficient for OMR note-head detection.
+
+    Args:
+        musicxml_path: Path to the source MusicXML file.
+        png_path: Destination path for the output PNG.
+        page: 1-indexed page number to render (default: 1).
+
+    Returns:
+        True on success, False if rendering fails (caller decides whether to skip OMR).
+    """
+    try:
+        import cairosvg
+        import verovio
+
+        tk = verovio.toolkit()
+        tk.setOptions({
+            "pageWidth": 2100,
+            "pageHeight": 2970,
+            "scale": 40,
+            "adjustPageWidth": True,
+            "adjustPageHeight": False,
+            "mmOutput": True,
+        })
+        tk.loadFile(str(musicxml_path))
+
+        if tk.getPageCount() < page:
+            logger.warning(
+                "render_score_to_png: requested page %d but score only has %d page(s)",
+                page, tk.getPageCount(),
+            )
+            return False
+
+        svg = tk.renderToSVG(page)
+        png_path.parent.mkdir(parents=True, exist_ok=True)
+        cairosvg.svg2png(bytestring=svg.encode("utf-8"), write_to=str(png_path))
+        logger.info("PNG rendered: %s (%.1f KB)", png_path.name, png_path.stat().st_size / 1024)
+        return True
+
+    except Exception as exc:
+        logger.warning("PNG rendering failed for '%s': %s", musicxml_path.name, exc)
+        return False
+
+
 def generate_scores(
     midi_files: dict[str, Path],
     output_dir: Path,

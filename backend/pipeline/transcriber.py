@@ -95,6 +95,73 @@ OTHER_CONFIG = TranscriptionConfig(
 DEFAULT_CONFIG = TranscriptionConfig()
 
 
+def _load_calibrated_configs() -> None:
+    """Override hand-tuned presets with calibrated values if the JSON exists.
+
+    Looks for ``backend/training/calibrated_configs.json`` relative to this
+    file's location. Silently skips if the file is absent or malformed — the
+    hand-tuned presets above are always the fallback.
+    """
+    global PIANO_CONFIG, VOCAL_CONFIG, BASS_CONFIG, GUITAR_CONFIG, OTHER_CONFIG
+
+    calibrated_path = Path(__file__).parent.parent / "training" / "calibrated_configs.json"
+    if not calibrated_path.exists():
+        return
+
+    try:
+        import json
+        raw = json.loads(calibrated_path.read_text())
+    except Exception as exc:
+        logger.warning("Could not load calibrated_configs.json: %s", exc)
+        return
+
+    name_to_ref = {
+        "piano":  "PIANO_CONFIG",
+        "vocals": "VOCAL_CONFIG",
+        "bass":   "BASS_CONFIG",
+        "guitar": "GUITAR_CONFIG",
+        "other":  "OTHER_CONFIG",
+    }
+    name_to_var: dict[str, object] = {
+        "piano": PIANO_CONFIG, "vocals": VOCAL_CONFIG, "bass": BASS_CONFIG,
+        "guitar": GUITAR_CONFIG, "other": OTHER_CONFIG,
+    }
+
+    for instrument, cfg in raw.items():
+        if instrument not in name_to_var:
+            continue
+        try:
+            updated = TranscriptionConfig(
+                onset_threshold=float(cfg.get("onset_threshold", name_to_var[instrument].onset_threshold)),  # type: ignore[union-attr]
+                frame_threshold=float(cfg.get("frame_threshold", name_to_var[instrument].frame_threshold)),  # type: ignore[union-attr]
+                minimum_note_length=float(cfg.get("minimum_note_length", name_to_var[instrument].minimum_note_length)),  # type: ignore[union-attr]
+                minimum_frequency=cfg.get("minimum_frequency"),
+                maximum_frequency=cfg.get("maximum_frequency"),
+            )
+            if instrument == "piano":
+                PIANO_CONFIG = updated
+            elif instrument == "vocals":
+                VOCAL_CONFIG = updated
+            elif instrument == "bass":
+                BASS_CONFIG = updated
+            elif instrument == "guitar":
+                GUITAR_CONFIG = updated
+            elif instrument == "other":
+                OTHER_CONFIG = updated
+            logger.info(
+                "Loaded calibrated config for '%s': onset=%.2f frame=%.2f",
+                instrument,
+                updated.onset_threshold,
+                updated.frame_threshold,
+            )
+        except Exception as exc:
+            logger.warning("Skipping calibrated config for '%s': %s", instrument, exc)
+
+
+# Apply calibrated overrides at module import time (no-op if file absent)
+_load_calibrated_configs()
+
+
 @dataclass(frozen=True)
 class TranscriptionResult:
     """Result of an audio-to-MIDI transcription.
@@ -134,6 +201,75 @@ def _count_midi_notes(midi_data) -> int:
     return count
 
 
+def _count_midi_notes_from_path(midi_path: Path) -> int:
+    """Count notes in a MIDI file by path (used when we don't have the in-memory object)."""
+    try:
+        import pretty_midi
+        midi_data = pretty_midi.PrettyMIDI(str(midi_path))
+        return _count_midi_notes(midi_data)
+    except Exception:
+        return 0
+
+
+def _transcribe_piano_hq(
+    input_path: Path,
+    output_path: Path,
+    config: TranscriptionConfig,
+) -> TranscriptionResult:
+    """High-quality piano transcription using piano_transcription_inference (Kong et al.)."""
+    try:
+        from piano_transcription_inference import PianoTranscription, sample_rate as PT_SR
+    except ImportError as exc:
+        raise TranscriptionError(
+            "piano-transcription-inference is not installed. "
+            "Run: pip install piano-transcription-inference>=0.0.21"
+        ) from exc
+
+    try:
+        import librosa
+    except ImportError as exc:
+        raise TranscriptionError("librosa is required for HQ piano transcription") from exc
+
+    start_time = time.monotonic()
+    audio_duration = _get_audio_duration(input_path)
+
+    logger.info("HQ piano transcription: loading audio at %d Hz mono", PT_SR)
+    try:
+        audio, _ = librosa.load(str(input_path), sr=PT_SR, mono=True)
+    except Exception as exc:
+        raise InvalidAudioError(
+            f"Failed to load audio for HQ piano transcription: {exc}"
+        ) from exc
+
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+
+    try:
+        import torch
+        device = "cuda" if torch.cuda.is_available() else "cpu"
+        logger.info("HQ piano transcription: running inference on %s", device)
+        transcriptor = PianoTranscription(device=device, checkpoint_path=None)
+        transcriptor.transcribe(audio, str(output_path))
+    except Exception as exc:
+        raise TranscriptionError(f"HQ piano transcription failed: {exc}") from exc
+
+    note_count = _count_midi_notes_from_path(output_path)
+    processing_time = time.monotonic() - start_time
+
+    logger.info(
+        "HQ piano transcription complete: notes=%d, processing_time=%.1fs",
+        note_count,
+        processing_time,
+    )
+
+    return TranscriptionResult(
+        midi_path=output_path,
+        note_count=note_count,
+        duration_seconds=audio_duration,
+        processing_time_seconds=processing_time,
+        config=config,
+    )
+
+
 def _get_audio_duration(input_path: Path) -> float:
     """Get the duration of an audio file in seconds using soundfile."""
     import soundfile as sf
@@ -149,13 +285,21 @@ def transcribe(
     input_path: Path,
     output_path: Path,
     config: TranscriptionConfig | None = None,
+    quality: str = "standard",
+    stem_name: str = "",
 ) -> TranscriptionResult:
-    """Transcribe an audio stem to MIDI using Basic Pitch.
+    """Transcribe an audio stem to MIDI.
+
+    Uses Basic Pitch for standard mode. In high quality mode, the piano stem
+    is transcribed with piano_transcription_inference (Kong et al.) for
+    significantly better accuracy on solo piano audio.
 
     Args:
         input_path: Path to the input audio file (WAV, MP3, FLAC, OGG).
         output_path: Path to write the output MIDI file (.mid).
         config: Transcription configuration. Uses DEFAULT_CONFIG if None.
+        quality: 'standard' uses Basic Pitch; 'high' uses HQ model for piano.
+        stem_name: Name of the stem being transcribed (e.g. 'piano', 'vocals').
 
     Returns:
         TranscriptionResult with path to MIDI file and metadata.
@@ -165,6 +309,9 @@ def transcribe(
         InvalidAudioError: If the audio format is not supported.
         TranscriptionError: For other transcription errors.
     """
+    if quality == "high" and stem_name == "piano":
+        return _transcribe_piano_hq(input_path, output_path, config or DEFAULT_CONFIG)
+
     from basic_pitch.inference import predict
 
     _validate_input(input_path)
@@ -234,6 +381,7 @@ def transcribe_stems(
     stems: dict[str, Path],
     output_dir: Path,
     config_map: dict[str, TranscriptionConfig] | None = None,
+    quality: str = "standard",
 ) -> dict[str, TranscriptionResult]:
     """Transcribe multiple stems to MIDI files.
 
@@ -271,6 +419,6 @@ def transcribe_stems(
         midi_output = output_dir / f"{stem_name}.mid"
 
         logger.info("Transcribing stem: %s", stem_name)
-        results[stem_name] = transcribe(stem_path, midi_output, config=config)
+        results[stem_name] = transcribe(stem_path, midi_output, config=config, quality=quality, stem_name=stem_name)
 
     return results

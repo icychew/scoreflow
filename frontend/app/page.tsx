@@ -3,18 +3,20 @@
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 import UploadZone from "@/components/UploadZone";
-import { uploadAudio } from "@/lib/api";
+import { uploadAudio, type Quality } from "@/lib/api";
 
 export default function HomePage() {
   const router = useRouter();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  const [quality, setQuality] = useState<Quality>("standard");
+  const [refine, setRefine] = useState(false);
 
   const handleUpload = async (file: File) => {
     setLoading(true);
     setError("");
     try {
-      const { job_id } = await uploadAudio(file);
+      const { job_id } = await uploadAudio(file, quality, refine);
       router.push(`/job/${job_id}`);
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : "Upload failed");
@@ -34,6 +36,57 @@ export default function HomePage() {
           Upload an MP3, WAV, or FLAC file. Our AI pipeline separates the stems,
           transcribes the notes, and generates MusicXML and MIDI — ready to open in MuseScore or any DAW.
         </p>
+      </div>
+
+      {/* Quality toggle */}
+      <div className="flex items-center justify-center gap-2">
+        <span className="text-sm text-slate-400">Quality:</span>
+        <div className="flex rounded-lg border border-slate-700 bg-slate-900 p-1 gap-1">
+          {(["standard", "high"] as Quality[]).map((q) => (
+            <button
+              key={q}
+              type="button"
+              disabled={loading}
+              onClick={() => setQuality(q)}
+              className={`rounded-md px-4 py-1.5 text-sm font-medium transition-colors
+                ${quality === q
+                  ? "bg-violet-600 text-white shadow"
+                  : "text-slate-400 hover:text-slate-200"
+                }
+                ${loading ? "cursor-not-allowed opacity-50" : "cursor-pointer"}`}
+            >
+              {q === "standard" ? "Standard" : "High Quality ✦"}
+            </button>
+          ))}
+        </div>
+        {quality === "high" && (
+          <span className="text-xs text-violet-400">
+            BS-RoFormer vocals · piano_transcription for piano
+          </span>
+        )}
+      </div>
+
+      {/* Refine toggle */}
+      <div className="flex items-center justify-center gap-3">
+        <button
+          type="button"
+          role="switch"
+          aria-checked={refine}
+          disabled={loading}
+          onClick={() => setRefine((r) => !r)}
+          className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none
+            ${refine ? "bg-violet-600" : "bg-slate-700"}
+            ${loading ? "cursor-not-allowed opacity-50" : "cursor-pointer"}`}
+        >
+          <span
+            className={`inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform
+              ${refine ? "translate-x-6" : "translate-x-1"}`}
+          />
+        </button>
+        <span className="text-sm text-slate-400">
+          Refine score{" "}
+          <span className="text-slate-600 text-xs">(re-transcribes bars with low chroma match — slower)</span>
+        </span>
       </div>
 
       {/* Upload */}
