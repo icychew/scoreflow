@@ -2,6 +2,7 @@ import { auth } from "@/lib/auth";
 import { redirect } from "next/navigation";
 import { db } from "@/lib/db";
 import { getTierLimits, getMonthlyUsage } from "@/lib/usage";
+import { isAdmin } from "@/lib/comp";
 import Link from "next/link";
 import type { Metadata } from "next";
 
@@ -59,11 +60,19 @@ export default async function DashboardPage() {
             <form action="/api/stripe/portal" method="POST">
               <button
                 type="submit"
-                className="rounded-lg border border-[#27272a] px-4 py-2 text-sm font-medium text-[#a1a1aa] hover:text-white transition-colors"
+                className="rounded-lg border border-[#27272a] px-4 py-2 text-sm font-medium text-[#a1a1aa] hover:text-white transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet-500 focus-visible:ring-offset-2 focus-visible:ring-offset-[#09090b]"
               >
                 Manage billing
               </button>
             </form>
+          )}
+          {isAdmin(session.user.email) && (
+            <Link
+              href="/admin/codes"
+              className="rounded-lg border border-violet-500/40 bg-violet-500/5 px-4 py-2 text-sm font-medium text-violet-300 hover:bg-violet-500/10 hover:border-violet-500/60 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet-500 focus-visible:ring-offset-2 focus-visible:ring-offset-[#09090b]"
+            >
+              Admin · Codes
+            </Link>
           )}
         </div>
       </div>

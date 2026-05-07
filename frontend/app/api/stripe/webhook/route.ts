@@ -8,10 +8,13 @@ async function setUserTier(
   tier: "free" | "pro" | "business",
   subscriptionId?: string
 ) {
+  // tier_source = 'stripe' so the auth signIn callback doesn't touch this row
+  // even if the user's email is in (or absent from) a comp allowlist.
   const { error } = await db
     .from("users")
     .update({
       tier,
+      tier_source: "stripe",
       stripe_subscription_id: subscriptionId ?? null,
     })
     .eq("stripe_customer_id", customerId);

@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import Link from "next/link";
 import PricingCards from "@/components/PricingCards";
 
 export const metadata: Metadata = {
@@ -43,6 +44,14 @@ export default function PricingPage() {
       </div>
 
       <PricingCards />
+
+      {/* Redeem CTA */}
+      <p className="text-center text-sm text-[#71717a] mt-8">
+        Have an invite code?{" "}
+        <Link href="/redeem" className="text-violet-400 hover:text-violet-300 underline">
+          Redeem it →
+        </Link>
+      </p>
 
       {/* FAQ */}
       <div className="mt-20">
