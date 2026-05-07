@@ -15,33 +15,48 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Missing priceId" }, { status: 400 });
   }
 
-  // Get or create Stripe customer
-  const { data: user } = await db
-    .from("users")
-    .select("stripe_customer_id")
-    .eq("id", session.user.id)
-    .single();
+  const allowedPriceIds = [
+    process.env.STRIPE_PRICE_PRO_MONTHLY,
+    process.env.STRIPE_PRICE_PRO_YEARLY,
+    process.env.STRIPE_PRICE_BUSINESS_MONTHLY,
+    process.env.STRIPE_PRICE_BUSINESS_YEARLY,
+  ].filter((id): id is string => Boolean(id));
 
-  let customerId = user?.stripe_customer_id as string | undefined;
-  if (!customerId) {
-    const customer = await stripe.customers.create({
-      email: session.user.email,
-      metadata: { notara_user_id: session.user.id },
-    });
-    customerId = customer.id;
-    await db
-      .from("users")
-      .update({ stripe_customer_id: customerId })
-      .eq("id", session.user.id);
+  if (!allowedPriceIds.includes(priceId)) {
+    return NextResponse.json({ error: "Invalid priceId" }, { status: 400 });
   }
 
-  const checkoutSession = await stripe.checkout.sessions.create({
-    customer: customerId,
-    mode: "subscription",
-    line_items: [{ price: priceId, quantity: 1 }],
-    success_url: `${process.env.NEXTAUTH_URL}/dashboard?upgrade=success`,
-    cancel_url: `${process.env.NEXTAUTH_URL}/pricing`,
-  });
+  try {
+    // Get or create Stripe customer
+    const { data: user } = await db
+      .from("users")
+      .select("stripe_customer_id")
+      .eq("id", session.user.id)
+      .single();
 
-  return NextResponse.json({ url: checkoutSession.url });
+    let customerId = user?.stripe_customer_id as string | undefined;
+    if (!customerId) {
+      const customer = await stripe.customers.create({
+        email: session.user.email,
+        metadata: { notara_user_id: session.user.id },
+      });
+      customerId = customer.id;
+      await db
+        .from("users")
+        .update({ stripe_customer_id: customerId })
+        .eq("id", session.user.id);
+    }
+
+    const checkoutSession = await stripe.checkout.sessions.create({
+      customer: customerId,
+      mode: "subscription",
+      line_items: [{ price: priceId, quantity: 1 }],
+      success_url: `${process.env.NEXTAUTH_URL}/dashboard?upgrade=success`,
+      cancel_url: `${process.env.NEXTAUTH_URL}/pricing`,
+    });
+
+    return NextResponse.json({ url: checkoutSession.url });
+  } catch {
+    return NextResponse.json({ error: "Internal error" }, { status: 500 });
+  }
 }

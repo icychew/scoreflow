@@ -19,10 +19,14 @@ export async function POST() {
     return NextResponse.json({ error: "No billing account" }, { status: 400 });
   }
 
-  const portalSession = await stripe.billingPortal.sessions.create({
-    customer: user.stripe_customer_id as string,
-    return_url: `${process.env.NEXTAUTH_URL}/dashboard`,
-  });
+  try {
+    const portalSession = await stripe.billingPortal.sessions.create({
+      customer: user.stripe_customer_id as string,
+      return_url: `${process.env.NEXTAUTH_URL}/dashboard`,
+    });
 
-  return NextResponse.json({ url: portalSession.url });
+    return NextResponse.json({ url: portalSession.url });
+  } catch {
+    return NextResponse.json({ error: "Internal error" }, { status: 500 });
+  }
 }
