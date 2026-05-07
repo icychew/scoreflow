@@ -17,6 +17,14 @@ export default function AppPage() {
     setError("");
     try {
       const { job_id } = await uploadAudio(file, quality, refine);
+
+      // Record transcription in DB (usage tracking + dashboard history)
+      await fetch("/api/transcriptions", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ jobId: job_id, filename: file.name }),
+      });
+
       router.push(`/job/${job_id}`);
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : "Upload failed");
