@@ -47,8 +47,10 @@ export default function SignInPage() {
           <form
             action={async (formData: FormData) => {
               "use server";
+              const email = String(formData.get("email") ?? "").trim();
+              if (!email) return;
               await signIn("resend", {
-                email: formData.get("email") as string,
+                email,
                 redirectTo: "/app",
               });
             }}
