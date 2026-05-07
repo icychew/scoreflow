@@ -178,6 +178,27 @@ export default function LandingPage() {
           </div>
         </div>
       </section>
+
+      {/* JSON-LD structured data */}
+      <script
+        type="application/ld+json"
+        dangerouslySetInnerHTML={{
+          __html: JSON.stringify({
+            "@context": "https://schema.org",
+            "@type": "SoftwareApplication",
+            "name": "Notara",
+            "description": "Convert audio files to sheet music PDF using AI stem separation and transcription.",
+            "url": "https://notara.app",
+            "applicationCategory": "MusicApplication",
+            "operatingSystem": "Web",
+            "offers": [
+              { "@type": "Offer", "name": "Free", "price": "0", "priceCurrency": "USD" },
+              { "@type": "Offer", "name": "Pro", "price": "12", "priceCurrency": "USD" },
+              { "@type": "Offer", "name": "Business", "price": "49", "priceCurrency": "USD" },
+            ],
+          }),
+        }}
+      />
     </div>
   );
 }
