@@ -3,6 +3,7 @@
 import { useState } from "react";
 import dynamic from "next/dynamic";
 import { downloadUrl } from "@/lib/api";
+import ShareModal from "@/components/ShareModal";
 
 const MusicXmlViewer = dynamic(() => import("@/components/MusicXmlViewer"), {
   ssr: false,
@@ -85,6 +86,7 @@ interface ResultsPanelProps {
 export default function ResultsPanel({ jobId, scores, omrScores, refinementScores, totalTime }: ResultsPanelProps) {
   const stems = Object.keys(scores);
   const [openViewers, setOpenViewers] = useState<Set<string>>(new Set());
+  const [shareOpen, setShareOpen] = useState(false);
 
   function toggleViewer(stem: string) {
     setOpenViewers((prev) => {
@@ -105,14 +107,24 @@ export default function ResultsPanel({ jobId, scores, omrScores, refinementScore
 
   return (
     <div className="rounded-xl border border-slate-700 bg-slate-800/60 p-6">
-      <div className="mb-5 flex items-center justify-between">
+      <div className="mb-5 flex flex-wrap items-center justify-between gap-3">
         <h2 className="text-sm font-semibold uppercase tracking-widest text-slate-400">
           Downloads
         </h2>
-        <span className="text-xs text-slate-500">
-          Completed in {totalTime.toFixed(1)}s
-        </span>
+        <div className="flex items-center gap-3">
+          <button
+            type="button"
+            onClick={() => setShareOpen(true)}
+            className="rounded-md border border-violet-500/40 bg-violet-500/5 px-3 py-1 text-xs font-medium text-violet-300 hover:bg-violet-500/10 hover:border-violet-500/60 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet-500 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950"
+          >
+            ↗ Share
+          </button>
+          <span className="text-xs text-slate-500">
+            Completed in {totalTime.toFixed(1)}s
+          </span>
+        </div>
       </div>
+      <ShareModal jobId={jobId} open={shareOpen} onClose={() => setShareOpen(false)} />
 
       <div className="space-y-3">
         {stems.map((stem) => (

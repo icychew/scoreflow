@@ -5,6 +5,7 @@ import { getTierLimits, getMonthlyUsage } from "@/lib/usage";
 import { isAdmin } from "@/lib/comp";
 import Link from "next/link";
 import type { Metadata } from "next";
+import DashboardList, { type DashboardItem } from "@/components/DashboardList";
 
 export const metadata: Metadata = {
   title: "Dashboard — Notara",
@@ -17,7 +18,7 @@ export default async function DashboardPage() {
   const [transcriptionsRes, used] = await Promise.all([
     db
       .from("transcriptions")
-      .select("id, job_id, filename, status, created_at")
+      .select("id, job_id, filename, title, status, created_at")
       .eq("user_id", session.user.id)
       .order("created_at", { ascending: false })
       .limit(50),
@@ -158,49 +159,7 @@ export default async function DashboardPage() {
             </div>
           </div>
         ) : (
-          <div className="flex flex-col gap-2">
-            {transcriptions.map((t) => (
-              <div
-                key={t.id}
-                className="flex items-center justify-between rounded-lg border border-[#27272a] bg-[#111113] px-4 py-3"
-              >
-                <div>
-                  <div className="text-sm font-medium text-white">
-                    {(t.filename as string | null) ?? "Untitled"}
-                  </div>
-                  <div className="text-xs text-[#52525b] mt-0.5">
-                    {t.created_at
-                      ? new Date(t.created_at as string).toLocaleDateString(
-                          "en-US",
-                          { month: "short", day: "numeric", year: "numeric" }
-                        )
-                      : "—"}
-                  </div>
-                </div>
-                <div className="flex items-center gap-3">
-                  <span
-                    className={`text-xs px-2 py-0.5 rounded-full ${
-                      t.status === "done"
-                        ? "bg-green-900/40 text-green-400"
-                        : t.status === "failed"
-                        ? "bg-red-900/40 text-red-400"
-                        : "bg-yellow-900/40 text-yellow-400"
-                    }`}
-                  >
-                    {t.status as string}
-                  </span>
-                  {t.status === "done" && t.job_id && (
-                    <Link
-                      href={`/job/${t.job_id as string}`}
-                      className="text-xs text-violet-400 hover:text-violet-300 transition-colors"
-                    >
-                      View →
-                    </Link>
-                  )}
-                </div>
-              </div>
-            ))}
-          </div>
+          <DashboardList items={transcriptions as DashboardItem[]} />
         )}
       </div>
     </div>
