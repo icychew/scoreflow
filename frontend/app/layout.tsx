@@ -45,7 +45,7 @@ export default function RootLayout({
                 Notara
               </span>
             </a>
-            <nav className="flex items-center gap-6 ml-6">
+            <nav aria-label="Primary" className="flex items-center gap-6 ml-6">
               <a
                 href="/app"
                 className="text-sm text-[#a1a1aa] hover:text-white transition-colors"
@@ -90,7 +90,7 @@ export default function RootLayout({
               </div>
               <span className="text-sm font-semibold text-white">Notara</span>
             </div>
-            <nav className="flex gap-6">
+            <nav aria-label="Footer" className="flex gap-6">
               <a href="/pricing" className="text-xs text-[#71717a] hover:text-white transition-colors">Pricing</a>
               <a href="/app" className="text-xs text-[#71717a] hover:text-white transition-colors">Transcribe</a>
               <a href="/viewer" className="text-xs text-[#71717a] hover:text-white transition-colors">Viewer</a>
