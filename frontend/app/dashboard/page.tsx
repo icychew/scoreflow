@@ -23,13 +23,17 @@ export default async function DashboardPage() {
     getMonthlyUsage(session.user.id),
   ]);
 
+  if (transcriptionsRes.error) {
+    console.error("[dashboard] Failed to load transcriptions:", transcriptionsRes.error);
+  }
+
   const transcriptions = transcriptionsRes.data ?? [];
   const tier = session.user.tier;
   const limits = getTierLimits(tier);
   const remaining =
     limits.monthlyLimit === Infinity
       ? "∞"
-      : String(limits.monthlyLimit - used);
+      : String(Math.max(0, limits.monthlyLimit - used));
 
   return (
     <div className="mx-auto max-w-4xl px-6 py-10">
@@ -119,10 +123,12 @@ export default async function DashboardPage() {
                     {(t.filename as string | null) ?? "Untitled"}
                   </div>
                   <div className="text-xs text-[#52525b] mt-0.5">
-                    {new Date(t.created_at as string).toLocaleDateString(
-                      "en-US",
-                      { month: "short", day: "numeric", year: "numeric" }
-                    )}
+                    {t.created_at
+                      ? new Date(t.created_at as string).toLocaleDateString(
+                          "en-US",
+                          { month: "short", day: "numeric", year: "numeric" }
+                        )
+                      : "—"}
                   </div>
                 </div>
                 <div className="flex items-center gap-3">
@@ -137,7 +143,7 @@ export default async function DashboardPage() {
                   >
                     {t.status as string}
                   </span>
-                  {t.status === "done" && (
+                  {t.status === "done" && t.job_id && (
                     <Link
                       href={`/job/${t.job_id as string}`}
                       className="text-xs text-violet-400 hover:text-violet-300 transition-colors"
