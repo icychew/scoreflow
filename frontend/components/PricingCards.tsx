@@ -87,20 +87,35 @@ const PLANS: readonly Plan[] = [
 
 export default function PricingCards() {
   const [annual, setAnnual] = useState(false);
+  const [loading, setLoading] = useState(false);
   const router = useRouter();
 
   const handleUpgrade = async (priceId: string | null) => {
-    if (!priceId) return;
-    const res = await fetch("/api/stripe/checkout", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ priceId }),
-    });
-    const data = (await res.json()) as { url?: string; error?: string };
-    if (data.url) {
-      router.push(data.url);
-    } else if (data.error === "Not authenticated") {
-      router.push("/signin");
+    if (!priceId || loading) return;
+    setLoading(true);
+    try {
+      const res = await fetch("/api/stripe/checkout", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ priceId }),
+      });
+      if (!res.ok) {
+        const data = (await res.json().catch(() => ({}))) as { error?: string };
+        if (data.error === "Not authenticated") {
+          router.push("/signin");
+        } else {
+          console.error("[pricing] Checkout error:", data.error ?? res.status);
+        }
+        return;
+      }
+      const data = (await res.json()) as { url?: string };
+      if (data.url) {
+        router.push(data.url);
+      }
+    } catch (err) {
+      console.error("[pricing] Checkout fetch failed:", err);
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -200,13 +215,14 @@ export default function PricingCards() {
                 ) : (
                   <button
                     onClick={() => handleUpgrade(priceId)}
-                    className={`w-full rounded-lg py-2.5 text-sm font-semibold transition-all ${
+                    disabled={loading}
+                    className={`w-full rounded-lg py-2.5 text-sm font-semibold transition-all disabled:opacity-50 disabled:cursor-not-allowed ${
                       plan.highlight
                         ? "bg-gradient-to-r from-violet-600 to-indigo-700 text-white hover:opacity-90"
                         : "border border-[#3f3f46] text-[#a1a1aa] hover:text-white hover:border-[#52525b]"
                     }`}
                   >
-                    {plan.cta}
+                    {loading ? "…" : plan.cta}
                   </button>
                 )}
               </div>
