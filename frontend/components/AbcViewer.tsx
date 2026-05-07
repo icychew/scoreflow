@@ -114,6 +114,7 @@ export default function AbcViewer({ abcText, onError }: AbcViewerProps) {
       <div
         ref={renderDivRef}
         className="bg-white rounded-lg px-4 pt-4 pb-2 min-h-[120px] overflow-x-auto"
+        style={{ color: "black" }}
       />
 
       {/* Hidden div that abcjs SynthController uses internally */}
