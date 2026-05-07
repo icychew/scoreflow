@@ -1,118 +1,183 @@
-"use client";
+import Link from "next/link";
+import type { Metadata } from "next";
 
-import { useRouter } from "next/navigation";
-import { useState } from "react";
-import UploadZone from "@/components/UploadZone";
-import { uploadAudio, type Quality } from "@/lib/api";
+export const metadata: Metadata = {
+  title: "Notara — Convert Audio to Sheet Music with AI",
+  description:
+    "Upload any audio file and get a clean PDF sheet music score in seconds. Notara uses AI to separate stems and transcribe each instrument. Free to try — no signup needed.",
+};
 
-export default function HomePage() {
-  const router = useRouter();
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState("");
-  const [quality, setQuality] = useState<Quality>("standard");
-  const [refine, setRefine] = useState(false);
-
-  const handleUpload = async (file: File) => {
-    setLoading(true);
-    setError("");
-    try {
-      const { job_id } = await uploadAudio(file, quality, refine);
-      router.push(`/job/${job_id}`);
-    } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : "Upload failed");
-      setLoading(false);
-    }
-  };
-
+export default function LandingPage() {
   return (
-    <div className="flex flex-col gap-12">
+    <div className="flex flex-col">
       {/* Hero */}
-      <div className="text-center">
-        <h1 className="text-4xl font-bold tracking-tight text-slate-100 sm:text-5xl">
-          Turn any song into{" "}
-          <span className="text-violet-400">sheet music</span>
-        </h1>
-        <p className="mt-4 text-lg text-slate-400">
-          Upload an MP3, WAV, or FLAC file. Our AI pipeline separates the stems,
-          transcribes the notes, and generates MusicXML and MIDI — ready to open in MuseScore or any DAW.
-        </p>
-      </div>
-
-      {/* Quality toggle */}
-      <div className="flex items-center justify-center gap-2">
-        <span className="text-sm text-slate-400">Quality:</span>
-        <div className="flex rounded-lg border border-slate-700 bg-slate-900 p-1 gap-1">
-          {(["standard", "high"] as Quality[]).map((q) => (
-            <button
-              key={q}
-              type="button"
-              disabled={loading}
-              onClick={() => setQuality(q)}
-              className={`rounded-md px-4 py-1.5 text-sm font-medium transition-colors
-                ${quality === q
-                  ? "bg-violet-600 text-white shadow"
-                  : "text-slate-400 hover:text-slate-200"
-                }
-                ${loading ? "cursor-not-allowed opacity-50" : "cursor-pointer"}`}
-            >
-              {q === "standard" ? "Standard" : "High Quality ✦"}
-            </button>
-          ))}
-        </div>
-        {quality === "high" && (
-          <span className="text-xs text-violet-400">
-            BS-RoFormer vocals · piano_transcription for piano
-          </span>
-        )}
-      </div>
-
-      {/* Refine toggle */}
-      <div className="flex items-center justify-center gap-3">
-        <button
-          type="button"
-          role="switch"
-          aria-checked={refine}
-          disabled={loading}
-          onClick={() => setRefine((r) => !r)}
-          className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none
-            ${refine ? "bg-violet-600" : "bg-slate-700"}
-            ${loading ? "cursor-not-allowed opacity-50" : "cursor-pointer"}`}
+      <section className="relative px-6 pt-20 pb-24 text-center overflow-hidden">
+        {/* Background glow */}
+        <div
+          aria-hidden
+          className="absolute inset-0 -z-10 flex items-center justify-center"
         >
-          <span
-            className={`inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform
-              ${refine ? "translate-x-6" : "translate-x-1"}`}
-          />
-        </button>
-        <span className="text-sm text-slate-400">
-          Refine score{" "}
-          <span className="text-slate-600 text-xs">(re-transcribes bars with low chroma match — slower)</span>
-        </span>
-      </div>
+          <div className="w-[600px] h-[400px] rounded-full bg-violet-700/20 blur-3xl" />
+        </div>
 
-      {/* Upload */}
-      <UploadZone onUpload={handleUpload} loading={loading} />
+        <div className="mx-auto max-w-3xl">
+          <div className="inline-flex items-center gap-2 rounded-full border border-violet-500/30 bg-violet-500/10 px-4 py-1.5 text-sm text-violet-300 mb-8">
+            <span className="w-1.5 h-1.5 rounded-full bg-violet-400 animate-pulse" />
+            Free to try — no signup needed
+          </div>
 
-      {error && (
-        <p className="text-center text-sm text-red-400">{error}</p>
-      )}
+          <h1 className="text-5xl sm:text-6xl font-bold tracking-tight text-white leading-[1.1]">
+            Upload audio.
+            <br />
+            <span className="text-transparent bg-clip-text bg-gradient-to-r from-violet-400 to-indigo-400">
+              Get sheet music.
+            </span>
+          </h1>
+
+          <p className="mt-6 text-xl text-[#a1a1aa] max-w-2xl mx-auto leading-relaxed">
+            Notara separates your recording into stems and transcribes each instrument
+            to a clean PDF score — powered by AI, ready in seconds.
+          </p>
+
+          <div className="mt-10 flex flex-col sm:flex-row gap-4 justify-center">
+            <Link
+              href="/app"
+              className="rounded-lg bg-gradient-to-r from-violet-600 to-indigo-700 px-8 py-3.5 text-base font-semibold text-white hover:opacity-90 transition-opacity shadow-lg shadow-violet-900/30"
+            >
+              Try it free →
+            </Link>
+            <Link
+              href="/pricing"
+              className="rounded-lg border border-[#27272a] bg-[#111113] px-8 py-3.5 text-base font-semibold text-[#a1a1aa] hover:text-white hover:border-[#3f3f46] transition-all"
+            >
+              See pricing
+            </Link>
+          </div>
+        </div>
+      </section>
 
       {/* How it works */}
-      <div className="grid gap-4 sm:grid-cols-4">
-        {[
-          { step: "1", label: "Upload", desc: "Drop an audio file up to 50 MB" },
-          { step: "2", label: "Separate", desc: "Demucs splits vocals, bass & more" },
-          { step: "3", label: "Transcribe", desc: "Basic Pitch converts audio to MIDI" },
-          { step: "4", label: "Score", desc: "music21 generates MusicXML sheet music" },
-        ].map(({ step, label, desc }) => (
-          <div key={step} className="rounded-xl border border-slate-800 bg-slate-900 p-4">
-            <div className="mb-2 flex h-8 w-8 items-center justify-center rounded-full bg-violet-900/50 text-sm font-bold text-violet-400">
-              {step}
-            </div>
-            <p className="font-semibold text-slate-200">{label}</p>
-            <p className="mt-1 text-sm text-slate-500">{desc}</p>
+      <section className="px-6 py-20 border-t border-[#27272a]">
+        <div className="mx-auto max-w-5xl">
+          <h2 className="text-center text-3xl font-bold text-white mb-4">
+            How it works
+          </h2>
+          <p className="text-center text-[#71717a] mb-14">Three steps. No music theory required.</p>
+
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
+            {[
+              {
+                step: "01",
+                title: "Upload your audio",
+                description:
+                  "Drop in any MP3, WAV, or FLAC file — a recording, a song, a rehearsal. Up to 3 minutes free.",
+              },
+              {
+                step: "02",
+                title: "AI separates the stems",
+                description:
+                  "Notara splits your audio into vocals, bass, and other instruments using Demucs — studio-grade source separation.",
+              },
+              {
+                step: "03",
+                title: "Download your PDF score",
+                description:
+                  "Each stem is transcribed to notation and exported as a clean PDF score, ready to print or share.",
+              },
+            ].map(({ step, title, description }) => (
+              <div
+                key={step}
+                className="flex flex-col gap-4 p-6 rounded-xl border border-[#27272a] bg-[#111113]"
+              >
+                <div className="text-xs font-mono text-violet-400 tracking-widest">{step}</div>
+                <h3 className="text-lg font-semibold text-white">{title}</h3>
+                <p className="text-sm text-[#71717a] leading-relaxed">{description}</p>
+              </div>
+            ))}
           </div>
-        ))}
-      </div>
+        </div>
+      </section>
+
+      {/* Features */}
+      <section className="px-6 py-20 border-t border-[#27272a]">
+        <div className="mx-auto max-w-5xl">
+          <h2 className="text-center text-3xl font-bold text-white mb-4">
+            Built for every musician
+          </h2>
+          <p className="text-center text-[#71717a] mb-14">From hobbyists to professional studios.</p>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
+            {[
+              {
+                icon: "🎙️",
+                title: "AI stem separation",
+                description: "Demucs separates vocals, bass, and other instruments with studio-grade precision.",
+              },
+              {
+                icon: "📄",
+                title: "Clean PDF scores",
+                description: "Every stem becomes a readable, printable sheet music PDF — perfect for rehearsal.",
+              },
+              {
+                icon: "🎹",
+                title: "MIDI & MusicXML",
+                description: "Pro and Business users also get MIDI and MusicXML for import into any DAW or notation software.",
+              },
+              {
+                icon: "⚡",
+                title: "Fast processing",
+                description: "Most tracks complete in under 60 seconds. Priority queue for Pro and Business users.",
+              },
+              {
+                icon: "🆓",
+                title: "Free to start",
+                description: "3 transcriptions every month, no credit card required. Upgrade when you need more.",
+              },
+              {
+                icon: "🔒",
+                title: "Your files, private",
+                description: "Audio files are processed and discarded. Results are available only to you.",
+              },
+            ].map(({ icon, title, description }) => (
+              <div
+                key={title}
+                className="p-5 rounded-xl border border-[#27272a] bg-[#111113] flex flex-col gap-3"
+              >
+                <div className="text-2xl">{icon}</div>
+                <h3 className="text-sm font-semibold text-white">{title}</h3>
+                <p className="text-sm text-[#71717a] leading-relaxed">{description}</p>
+              </div>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      {/* Pricing teaser */}
+      <section className="px-6 py-20 border-t border-[#27272a]">
+        <div className="mx-auto max-w-3xl text-center">
+          <h2 className="text-3xl font-bold text-white mb-4">
+            Start free. Upgrade when you're ready.
+          </h2>
+          <p className="text-[#71717a] mb-10">
+            Free tier gives you 3 transcriptions per month, no card needed. Pro
+            unlocks 50/month, MIDI, MusicXML, and your transcription history.
+          </p>
+          <div className="flex flex-col sm:flex-row gap-4 justify-center">
+            <Link
+              href="/app"
+              className="rounded-lg bg-gradient-to-r from-violet-600 to-indigo-700 px-8 py-3.5 text-base font-semibold text-white hover:opacity-90 transition-opacity"
+            >
+              Try free now →
+            </Link>
+            <Link
+              href="/pricing"
+              className="rounded-lg border border-[#27272a] bg-[#111113] px-8 py-3.5 text-base font-semibold text-[#a1a1aa] hover:text-white hover:border-[#3f3f46] transition-all"
+            >
+              View all plans
+            </Link>
+          </div>
+        </div>
+      </section>
     </div>
   );
 }
