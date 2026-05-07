@@ -26,7 +26,7 @@ export default async function DashboardPage() {
   if (transcriptionsRes.error) {
     console.error("[dashboard] Failed to load transcriptions:", transcriptionsRes.error);
   }
-
+  const transcriptionLoadFailed = Boolean(transcriptionsRes.error);
   const transcriptions = transcriptionsRes.data ?? [];
   const tier = session.user.tier;
   const limits = getTierLimits(tier);
@@ -104,7 +104,11 @@ export default async function DashboardPage() {
         <h2 className="text-lg font-semibold text-white mb-4">
           Transcription history
         </h2>
-        {transcriptions.length === 0 ? (
+        {transcriptionLoadFailed ? (
+          <div className="text-center py-12 text-[#52525b] border border-[#27272a] rounded-xl">
+            Could not load transcription history. Please refresh the page.
+          </div>
+        ) : transcriptions.length === 0 ? (
           <div className="text-center py-12 text-[#52525b] border border-[#27272a] rounded-xl">
             No transcriptions yet.{" "}
             <Link href="/app" className="text-violet-400 hover:underline">
