@@ -51,6 +51,7 @@ export default function RootLayout({
               <a href="/pricing" className="text-xs text-[#71717a] hover:text-white transition-colors">Pricing</a>
               <a href="/app" className="text-xs text-[#71717a] hover:text-white transition-colors">Transcribe</a>
               <a href="/viewer" className="text-xs text-[#71717a] hover:text-white transition-colors">Viewer</a>
+              <a href="/docs" className="text-xs text-[#71717a] hover:text-white transition-colors">API</a>
               <a href="/signin" className="text-xs text-[#71717a] hover:text-white transition-colors">Sign in</a>
             </nav>
             <p className="text-xs text-[#71717a] text-center">

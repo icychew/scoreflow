@@ -57,6 +57,14 @@ export default async function DashboardPage() {
               Upgrade to Pro
             </Link>
           )}
+          {tier === "business" && (
+            <Link
+              href="/dashboard/keys"
+              className="rounded-lg border border-[#27272a] px-4 py-2 text-sm font-medium text-[#a1a1aa] hover:text-white transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet-500 focus-visible:ring-offset-2 focus-visible:ring-offset-[#09090b]"
+            >
+              API keys
+            </Link>
+          )}
           {tier !== "free" && (
             <form action="/api/stripe/portal" method="POST">
               <button
