@@ -12,6 +12,20 @@ interface MusicXmlViewerProps {
 
 type LoadPhase = "loading" | "ready" | "error";
 
+const MIN_BPM = 40;
+const MAX_BPM = 220;
+const DEFAULT_BPM = 120;
+const MIN_TRANSPOSE = -12;
+const MAX_TRANSPOSE = 12;
+
+/** Convert MIDI note number (0-127) to note name. Avoids needing a Tone.js call per note. */
+function midiToNoteName(midi: number): string {
+  const NAMES = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"];
+  const clamped = Math.max(0, Math.min(127, midi));
+  const octave = Math.floor(clamped / 12) - 1;
+  return `${NAMES[clamped % 12]}${octave}`;
+}
+
 export default function MusicXmlViewer({ jobId, stem, hasMidi }: MusicXmlViewerProps) {
   const osmdContainerRef = useRef<HTMLDivElement>(null);
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -20,20 +34,34 @@ export default function MusicXmlViewer({ jobId, stem, hasMidi }: MusicXmlViewerP
   const synthRef = useRef<any>(null);
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const partRef = useRef<any>(null);
-  // Cached Tone module reference — avoids async in cleanup (which can't await)
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const toneModuleRef = useRef<any>(null);
-  // Raw MIDI bytes — re-parsed on every Play press
   const midiBufferRef = useRef<ArrayBuffer | null>(null);
-  // Timeout id for auto-resetting isPlaying; stored so it can be cancelled
   const playTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Latest transpose value, read at scheduling time (NOT in deps to avoid re-mount)
+  const transposeRef = useRef(0);
 
   const [phase, setPhase] = useState<LoadPhase>("loading");
   const [loadError, setLoadError] = useState<string | null>(null);
   const [playError, setPlayError] = useState<string | null>(null);
   const [isPlaying, setIsPlaying] = useState(false);
-  // Reactive flag set when MIDI buffer is ready — refs don't trigger re-render
   const [midiReady, setMidiReady] = useState(false);
+  const [tempoBpm, setTempoBpm] = useState<number>(DEFAULT_BPM);
+  const [transpose, setTranspose] = useState(0);
+  // Has the user manually moved the tempo slider? (If not, use the MIDI's native BPM.)
+  const [tempoTouched, setTempoTouched] = useState(false);
+
+  useEffect(() => {
+    transposeRef.current = transpose;
+  }, [transpose]);
+
+  // Live tempo control — applies even during playback
+  useEffect(() => {
+    if (!toneModuleRef.current) return;
+    try {
+      toneModuleRef.current.getTransport().bpm.value = tempoBpm;
+    } catch { /* ignore */ }
+  }, [tempoBpm]);
 
   // Load MusicXML (and optionally MIDI) on mount
   useEffect(() => {
@@ -41,7 +69,6 @@ export default function MusicXmlViewer({ jobId, stem, hasMidi }: MusicXmlViewerP
 
     async function load() {
       try {
-        // 1. Fetch MusicXML text from the backend
         const xmlRes = await fetch(downloadUrl(jobId, stem, "musicxml"), {
           headers: NGROK_HEADERS,
         });
@@ -50,7 +77,6 @@ export default function MusicXmlViewer({ jobId, stem, hasMidi }: MusicXmlViewerP
 
         if (cancelled) return;
 
-        // 2. Render with OSMD (lazy-loaded to avoid SSR)
         const { OpenSheetMusicDisplay } = await import("opensheetmusicdisplay");
         if (cancelled || !osmdContainerRef.current) return;
 
@@ -71,14 +97,22 @@ export default function MusicXmlViewer({ jobId, stem, hasMidi }: MusicXmlViewerP
         if (cancelled) return;
         osmd.render();
 
-        // 3. Optionally pre-fetch MIDI for Tone.js playback
         if (hasMidi) {
           const midiRes = await fetch(downloadUrl(jobId, stem, "mid"), {
             headers: NGROK_HEADERS,
           });
           if (midiRes.ok && !cancelled) {
             midiBufferRef.current = await midiRes.arrayBuffer();
-            setMidiReady(true); // reactive: triggers re-render to show playback controls
+            // Read BPM from MIDI header to seed the slider
+            try {
+              const { Midi } = await import("@tonejs/midi");
+              const midi = new Midi(midiBufferRef.current);
+              const headerBpm = midi.header.tempos[0]?.bpm;
+              if (headerBpm && !cancelled) {
+                setTempoBpm(Math.round(headerBpm));
+              }
+            } catch { /* fall back to DEFAULT_BPM */ }
+            setMidiReady(true);
           }
         }
 
@@ -96,26 +130,21 @@ export default function MusicXmlViewer({ jobId, stem, hasMidi }: MusicXmlViewerP
 
     return () => {
       cancelled = true;
-      // Cancel any pending auto-reset timer
       if (playTimerRef.current !== null) {
         clearTimeout(playTimerRef.current);
         playTimerRef.current = null;
       }
-      // Stop Transport synchronously using cached module (async import not safe in cleanup)
       if (toneModuleRef.current) {
         try { toneModuleRef.current.getTransport().stop(); } catch { /* ignore */ }
         try { toneModuleRef.current.getTransport().cancel(); } catch { /* ignore */ }
       }
-      // Dispose all Web Audio nodes to prevent leaks
       try { synthRef.current?.dispose(); } catch { /* ignore */ }
       synthRef.current = null;
       try { partRef.current?.dispose(); } catch { /* ignore */ }
       partRef.current = null;
-      // Clear OSMD to remove its resize listeners and SVG
       try { osmdRef.current?.clear?.(); } catch { /* ignore */ }
       osmdRef.current = null;
     };
-    // jobId and stem are stable once the component mounts
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [jobId, stem, hasMidi]);
 
@@ -135,12 +164,10 @@ export default function MusicXmlViewer({ jobId, stem, hasMidi }: MusicXmlViewerP
         import("tone"),
         import("@tonejs/midi"),
       ]);
-      toneModuleRef.current = Tone; // cache for synchronous cleanup on unmount
+      toneModuleRef.current = Tone;
 
-      // Unlock AudioContext (required by browsers before first audio)
       await Tone.start();
 
-      // Stop any prior playback on the shared Transport before re-scheduling
       Tone.getTransport().stop();
       Tone.getTransport().cancel();
       try { partRef.current?.dispose(); } catch { /* ignore */ }
@@ -148,18 +175,21 @@ export default function MusicXmlViewer({ jobId, stem, hasMidi }: MusicXmlViewerP
 
       const midi = new Midi(midiBufferRef.current);
 
-      // Build a PolySynth that can handle chords
       const synth = new Tone.PolySynth(Tone.Synth, {
         oscillator: { type: "triangle" as const },
         envelope: { attack: 0.02, decay: 0.1, sustain: 0.3, release: 0.8 },
       }).toDestination();
       synthRef.current = synth;
 
-      // Collect all notes across all tracks
+      // Snapshot transpose at scheduling time. Live tempo changes work via Transport.bpm
+      // but transpose changes require a re-schedule, so we'll just stop+restart on transpose.
+      const transposeAtSchedule = transposeRef.current;
+
+      // Use note.midi (MIDI number) so transpose is a simple integer add.
       const allNotes = midi.tracks.flatMap((track) =>
         track.notes.map((note) => ({
           time: note.time,
-          note: note.name,
+          midi: note.midi,
           duration: note.duration,
           velocity: note.velocity,
         })),
@@ -171,23 +201,24 @@ export default function MusicXmlViewer({ jobId, stem, hasMidi }: MusicXmlViewerP
       }
 
       const part = new Tone.Part(
-        (time: number, value: { note: string; duration: number; velocity: number } | number) => {
+        (time: number, value: { midi: number; duration: number; velocity: number } | number) => {
           if (typeof value === "number") return;
-          synth.triggerAttackRelease(value.note, value.duration, time, value.velocity);
+          const noteName = midiToNoteName(value.midi + transposeAtSchedule);
+          synth.triggerAttackRelease(noteName, value.duration, time, value.velocity);
         },
         allNotes.map((n) => [n.time, n]),
       );
       partRef.current = part;
       part.start(0);
 
-      // Set BPM from MIDI header if available
-      const bpm = midi.header.tempos[0]?.bpm;
-      if (bpm) Tone.getTransport().bpm.value = bpm;
+      Tone.getTransport().bpm.value = tempoBpm;
 
       Tone.getTransport().start("+0.1");
       setIsPlaying(true);
 
-      // Auto-reset playing state when playback ends; store id for cancellation
+      // Auto-reset playing state when playback ends — scaled by tempo
+      const headerBpm = midi.header.tempos[0]?.bpm ?? DEFAULT_BPM;
+      const tempoRatio = headerBpm / tempoBpm; // <1 means we're playing faster
       const totalDuration = allNotes.reduce(
         (max, n) => Math.max(max, n.time + n.duration),
         0,
@@ -195,7 +226,7 @@ export default function MusicXmlViewer({ jobId, stem, hasMidi }: MusicXmlViewerP
       playTimerRef.current = setTimeout(() => {
         playTimerRef.current = null;
         setIsPlaying(false);
-      }, (totalDuration + 1) * 1000);
+      }, (totalDuration * tempoRatio + 1) * 1000);
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
       setPlayError(msg);
@@ -226,9 +257,22 @@ export default function MusicXmlViewer({ jobId, stem, hasMidi }: MusicXmlViewerP
     setIsPlaying(false);
   };
 
+  // Stop playback if transpose changes mid-song; user must press Play again
+  useEffect(() => {
+    if (isPlaying) {
+      handleStop();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [transpose]);
+
+  const transposeLabel = transpose === 0
+    ? "0"
+    : transpose > 0
+      ? `+${transpose}`
+      : String(transpose);
+
   return (
     <div className="mt-2 rounded-xl border border-slate-700 overflow-hidden">
-      {/* Loading skeleton */}
       {phase === "loading" && (
         <div className="flex items-center gap-3 p-6 bg-slate-900/50">
           <span className="h-5 w-5 animate-spin rounded-full border-2 border-violet-400 border-t-transparent" />
@@ -236,14 +280,12 @@ export default function MusicXmlViewer({ jobId, stem, hasMidi }: MusicXmlViewerP
         </div>
       )}
 
-      {/* Load error state */}
       {phase === "error" && (
         <div className="p-4 bg-red-950/30 border-t border-red-800 text-sm text-red-400">
           ⚠ Failed to load score: {loadError}
         </div>
       )}
 
-      {/* OSMD renders its SVG into this div — must be white-bg for correct rendering */}
       <div
         ref={osmdContainerRef}
         className="w-full overflow-y-auto p-4 bg-white"
@@ -255,45 +297,95 @@ export default function MusicXmlViewer({ jobId, stem, hasMidi }: MusicXmlViewerP
 
       {/* Playback controls — only shown when MIDI loaded successfully */}
       {phase === "ready" && hasMidi && midiReady && (
-        <div className="flex items-center gap-2 border-t border-slate-200 bg-slate-50 px-4 py-2.5">
-          <span className="text-xs font-medium text-slate-500 mr-1">Playback:</span>
-          {isPlaying ? (
+        <div className="flex flex-col gap-3 border-t border-slate-200 bg-slate-50 px-4 py-3 sm:flex-row sm:items-center sm:flex-wrap sm:gap-4">
+          {/* Transport */}
+          <div className="flex items-center gap-2">
+            <span className="text-xs font-medium text-slate-500 mr-1">Playback:</span>
+            {isPlaying ? (
+              <button
+                type="button"
+                onClick={handlePause}
+                className="flex items-center gap-1.5 rounded-md bg-violet-700 px-3 py-1.5 text-xs font-semibold text-white hover:bg-violet-600 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet-500 focus-visible:ring-offset-1 focus-visible:ring-offset-slate-50"
+              >
+                <span aria-hidden="true">⏸</span> Pause
+              </button>
+            ) : (
+              <button
+                type="button"
+                onClick={handlePlay}
+                className="flex items-center gap-1.5 rounded-md bg-violet-700 px-3 py-1.5 text-xs font-semibold text-white hover:bg-violet-600 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet-500 focus-visible:ring-offset-1 focus-visible:ring-offset-slate-50"
+              >
+                <span aria-hidden="true">▶</span> Play
+              </button>
+            )}
             <button
               type="button"
-              onClick={handlePause}
-              className="flex items-center gap-1.5 rounded-md bg-violet-700 px-3 py-1.5 text-xs font-semibold text-white hover:bg-violet-600 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet-500 focus-visible:ring-offset-1 focus-visible:ring-offset-slate-50"
+              onClick={handleStop}
+              className="flex items-center gap-1.5 rounded-md border border-slate-300 bg-white px-3 py-1.5 text-xs font-medium text-slate-600 hover:bg-slate-50 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet-500 focus-visible:ring-offset-1 focus-visible:ring-offset-slate-50"
             >
-              <span aria-hidden="true">⏸</span> Pause
+              <span aria-hidden="true">■</span> Stop
             </button>
-          ) : (
-            <button
-              type="button"
-              onClick={handlePlay}
-              className="flex items-center gap-1.5 rounded-md bg-violet-700 px-3 py-1.5 text-xs font-semibold text-white hover:bg-violet-600 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet-500 focus-visible:ring-offset-1 focus-visible:ring-offset-slate-50"
-            >
-              <span aria-hidden="true">▶</span> Play
-            </button>
-          )}
-          <button
-            type="button"
-            onClick={handleStop}
-            className="flex items-center gap-1.5 rounded-md border border-slate-300 bg-white px-3 py-1.5 text-xs font-medium text-slate-600 hover:bg-slate-50 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet-500 focus-visible:ring-offset-1 focus-visible:ring-offset-slate-50"
-          >
-            <span aria-hidden="true">■</span> Stop
-          </button>
-          {playError && (
-            <span className="ml-2 text-xs text-red-500">{playError}</span>
-          )}
-          <span className="ml-auto text-xs text-slate-400 italic">
-            Note: only one stem plays at a time
-          </span>
-        </div>
-      )}
+          </div>
 
-      {/* Score rendered but no MIDI available */}
-      {phase === "ready" && (!hasMidi || !midiReady) && (
-        <div className="border-t border-slate-200 bg-slate-50 px-4 py-2 text-xs text-slate-500">
-          Score rendered — no MIDI file available for audio playback.
+          {/* Tempo */}
+          <label className="flex items-center gap-2 min-w-[200px] flex-1">
+            <span className="text-xs font-medium text-slate-500">Tempo</span>
+            <input
+              type="range"
+              min={MIN_BPM}
+              max={MAX_BPM}
+              step={1}
+              value={tempoBpm}
+              onChange={(e) => {
+                setTempoBpm(Number(e.target.value));
+                setTempoTouched(true);
+              }}
+              className="flex-1 accent-violet-500 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet-500 focus-visible:ring-offset-1 focus-visible:ring-offset-slate-50"
+              aria-label="Tempo (BPM)"
+            />
+            <span className="text-xs font-mono text-slate-700 w-16 text-right tabular-nums">
+              {tempoBpm} {tempoTouched ? "BPM" : "BPM*"}
+            </span>
+          </label>
+
+          {/* Transpose */}
+          <div className="flex items-center gap-2">
+            <span className="text-xs font-medium text-slate-500">Key</span>
+            <button
+              type="button"
+              onClick={() => setTranspose((t) => Math.max(MIN_TRANSPOSE, t - 1))}
+              disabled={transpose <= MIN_TRANSPOSE}
+              aria-label="Transpose down one semitone"
+              className="rounded-md border border-slate-300 bg-white w-7 h-7 text-sm font-medium text-slate-700 hover:bg-slate-100 transition-colors disabled:opacity-40 disabled:cursor-not-allowed focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet-500"
+            >
+              −
+            </button>
+            <span className="text-xs font-mono text-slate-700 w-7 text-center tabular-nums">
+              {transposeLabel}
+            </span>
+            <button
+              type="button"
+              onClick={() => setTranspose((t) => Math.min(MAX_TRANSPOSE, t + 1))}
+              disabled={transpose >= MAX_TRANSPOSE}
+              aria-label="Transpose up one semitone"
+              className="rounded-md border border-slate-300 bg-white w-7 h-7 text-sm font-medium text-slate-700 hover:bg-slate-100 transition-colors disabled:opacity-40 disabled:cursor-not-allowed focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet-500"
+            >
+              +
+            </button>
+            {transpose !== 0 && (
+              <button
+                type="button"
+                onClick={() => setTranspose(0)}
+                className="text-xs text-slate-400 hover:text-slate-700 underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet-500 rounded"
+              >
+                reset
+              </button>
+            )}
+          </div>
+
+          {playError && (
+            <span className="text-xs text-red-600 basis-full">⚠ {playError}</span>
+          )}
         </div>
       )}
     </div>
