@@ -84,8 +84,9 @@ export async function updateTranscriptionStatus(
   jobId: string,
   status: "done" | "failed"
 ): Promise<void> {
-  await db
+  const { error } = await db
     .from("transcriptions")
     .update({ status })
     .eq("job_id", jobId);
+  if (error) throw error;
 }
