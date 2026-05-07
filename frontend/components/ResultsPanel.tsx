@@ -130,7 +130,7 @@ export default function ResultsPanel({ jobId, scores, omrScores, refinementScore
                     key={fmt}
                     href={downloadUrl(jobId, stem, fmt)}
                     download={`${stem}${meta.ext}`}
-                    className="rounded-md bg-violet-700 px-3 py-1 text-xs font-semibold text-white hover:bg-violet-600 transition-colors"
+                    className="rounded-md bg-violet-700 px-3 py-1 text-xs font-semibold text-white hover:bg-violet-600 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet-500 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950"
                   >
                     ↓ {meta.label}
                   </a>
@@ -140,7 +140,7 @@ export default function ResultsPanel({ jobId, scores, omrScores, refinementScore
                 <button
                   type="button"
                   onClick={() => toggleViewer(stem)}
-                  className="rounded-md bg-slate-700 px-3 py-1 text-xs font-semibold text-slate-200 hover:bg-slate-600 transition-colors"
+                  className="rounded-md bg-slate-700 px-3 py-1 text-xs font-semibold text-slate-200 hover:bg-slate-600 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet-500 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950"
                 >
                   {openViewers.has(stem) ? "✕ Close" : "♪ View & Play ▶"}
                 </button>

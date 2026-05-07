@@ -261,7 +261,7 @@ export default function MusicXmlViewer({ jobId, stem, hasMidi }: MusicXmlViewerP
             <button
               type="button"
               onClick={handlePause}
-              className="flex items-center gap-1.5 rounded-md bg-violet-700 px-3 py-1.5 text-xs font-semibold text-white hover:bg-violet-600 transition-colors"
+              className="flex items-center gap-1.5 rounded-md bg-violet-700 px-3 py-1.5 text-xs font-semibold text-white hover:bg-violet-600 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet-500 focus-visible:ring-offset-1 focus-visible:ring-offset-slate-50"
             >
               <span aria-hidden="true">⏸</span> Pause
             </button>
@@ -269,7 +269,7 @@ export default function MusicXmlViewer({ jobId, stem, hasMidi }: MusicXmlViewerP
             <button
               type="button"
               onClick={handlePlay}
-              className="flex items-center gap-1.5 rounded-md bg-violet-700 px-3 py-1.5 text-xs font-semibold text-white hover:bg-violet-600 transition-colors"
+              className="flex items-center gap-1.5 rounded-md bg-violet-700 px-3 py-1.5 text-xs font-semibold text-white hover:bg-violet-600 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet-500 focus-visible:ring-offset-1 focus-visible:ring-offset-slate-50"
             >
               <span aria-hidden="true">▶</span> Play
             </button>
@@ -277,7 +277,7 @@ export default function MusicXmlViewer({ jobId, stem, hasMidi }: MusicXmlViewerP
           <button
             type="button"
             onClick={handleStop}
-            className="flex items-center gap-1.5 rounded-md border border-slate-300 bg-white px-3 py-1.5 text-xs font-medium text-slate-600 hover:bg-slate-50 transition-colors"
+            className="flex items-center gap-1.5 rounded-md border border-slate-300 bg-white px-3 py-1.5 text-xs font-medium text-slate-600 hover:bg-slate-50 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet-500 focus-visible:ring-offset-1 focus-visible:ring-offset-slate-50"
           >
             <span aria-hidden="true">■</span> Stop
           </button>

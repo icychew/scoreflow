@@ -109,11 +109,44 @@ export default async function DashboardPage() {
             Could not load transcription history. Please refresh the page.
           </div>
         ) : transcriptions.length === 0 ? (
-          <div className="text-center py-12 text-[#52525b] border border-[#27272a] rounded-xl">
-            No transcriptions yet.{" "}
-            <Link href="/app" className="text-violet-400 hover:underline">
-              Start your first one →
-            </Link>
+          <div className="text-center py-16 px-6 border border-[#27272a] rounded-xl bg-[#0c0c0e]">
+            <div className="mx-auto mb-5 flex h-16 w-16 items-center justify-center rounded-full bg-gradient-to-br from-violet-900/40 to-indigo-900/40 border border-violet-500/30">
+              <svg
+                className="h-8 w-8 text-violet-400"
+                fill="none"
+                viewBox="0 0 24 24"
+                stroke="currentColor"
+                aria-hidden="true"
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={1.5}
+                  d="M9 19V6l12-3v13M9 19c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2zm12-3c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2zM9 10l12-3"
+                />
+              </svg>
+            </div>
+            <h3 className="text-lg font-semibold text-white mb-2">
+              No transcriptions yet
+            </h3>
+            <p className="text-sm text-[#71717a] mb-6 max-w-sm mx-auto">
+              Upload your first audio file and Notara will turn it into sheet
+              music in seconds.
+            </p>
+            <div className="flex flex-col sm:flex-row gap-3 justify-center">
+              <Link
+                href="/app"
+                className="rounded-lg bg-gradient-to-r from-violet-600 to-indigo-700 px-6 py-2.5 text-sm font-semibold text-white hover:opacity-90 transition-opacity focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet-500 focus-visible:ring-offset-2 focus-visible:ring-offset-[#09090b]"
+              >
+                Upload your first track →
+              </Link>
+              <Link
+                href="/demo"
+                className="rounded-lg border border-[#27272a] bg-[#111113] px-6 py-2.5 text-sm font-medium text-[#a1a1aa] hover:text-white hover:border-[#3f3f46] transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet-500 focus-visible:ring-offset-2 focus-visible:ring-offset-[#09090b]"
+              >
+                ▶ See a demo first
+              </Link>
+            </div>
           </div>
         ) : (
           <div className="flex flex-col gap-2">

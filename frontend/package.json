@@ -18,6 +18,7 @@
     "opensheetmusicdisplay": "^1.9.1",
     "react": "19.2.4",
     "react-dom": "19.2.4",
+    "sonner": "^2.0.7",
     "stripe": "^22.1.1",
     "tone": "^14.7.77"
   },

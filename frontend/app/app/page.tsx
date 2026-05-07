@@ -2,19 +2,21 @@
 
 import { useRouter } from "next/navigation";
 import { useState } from "react";
+import { toast } from "sonner";
 import UploadZone from "@/components/UploadZone";
 import { uploadAudio, type Quality } from "@/lib/api";
 
 export default function AppPage() {
   const router = useRouter();
   const [loading, setLoading] = useState(false);
-  const [error, setError] = useState("");
   const [quality, setQuality] = useState<Quality>("standard");
   const [refine, setRefine] = useState(false);
 
   const handleUpload = async (file: File) => {
     setLoading(true);
-    setError("");
+    const uploadingToast = toast.loading("Uploading audio…", {
+      description: file.name,
+    });
     try {
       const { job_id } = await uploadAudio(file, quality, refine);
 
@@ -25,9 +27,14 @@ export default function AppPage() {
         body: JSON.stringify({ jobId: job_id, filename: file.name }),
       });
 
+      toast.success("Upload complete", {
+        id: uploadingToast,
+        description: "Pipeline started — taking you to the progress page.",
+      });
       router.push(`/job/${job_id}`);
     } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : "Upload failed");
+      const msg = e instanceof Error ? e.message : "Upload failed";
+      toast.error("Upload failed", { id: uploadingToast, description: msg });
       setLoading(false);
     }
   };
@@ -96,9 +103,6 @@ export default function AppPage() {
       </div>
       {/* Upload */}
       <UploadZone onUpload={handleUpload} loading={loading} />
-      {error && (
-        <p className="text-center text-sm text-red-400">{error}</p>
-      )}
       {/* How it works */}
       <div className="grid gap-4 sm:grid-cols-4">
         {[

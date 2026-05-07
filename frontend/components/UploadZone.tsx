@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useState } from "react";
+import { toast } from "sonner";
 
 interface UploadZoneProps {
   onUpload: (file: File) => void;
@@ -24,7 +25,11 @@ export default function UploadZone({ onUpload, loading }: UploadZoneProps) {
   const handleFile = useCallback(
     (file: File) => {
       const err = validate(file);
-      if (err) { setError(err); return; }
+      if (err) {
+        setError(err);
+        toast.error("File rejected", { description: err });
+        return;
+      }
       setError("");
       onUpload(file);
     },
@@ -81,7 +86,7 @@ export default function UploadZone({ onUpload, loading }: UploadZoneProps) {
           <p className="text-sm text-slate-400">MP3 · WAV · FLAC — up to 50 MB</p>
           <button
             type="button"
-            className="rounded-lg bg-violet-600 px-5 py-2 text-sm font-semibold text-white hover:bg-violet-500 transition-colors"
+            className="rounded-lg bg-violet-600 px-5 py-2 text-sm font-semibold text-white hover:bg-violet-500 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet-500 focus-visible:ring-offset-2 focus-visible:ring-offset-[#09090b]"
           >
             Browse files
           </button>

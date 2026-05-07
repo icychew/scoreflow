@@ -1,5 +1,7 @@
 import type { Metadata } from "next";
 import { Inter } from "next/font/google";
+import { Toaster } from "sonner";
+import Header from "@/components/Header";
 import "./globals.css";
 
 const inter = Inter({ subsets: ["latin"] });
@@ -35,52 +37,7 @@ export default function RootLayout({
       <body
         className={`${inter.className} min-h-screen bg-[#09090b] text-white antialiased`}
       >
-        <header className="border-b border-[#27272a] px-6 py-4">
-          <div className="mx-auto flex max-w-5xl items-center gap-4">
-            <a href="/" className="flex items-center gap-2 group">
-              <div className="w-7 h-7 rounded-md bg-gradient-to-br from-violet-600 to-indigo-700 flex items-center justify-center text-xs font-bold text-white">
-                N
-              </div>
-              <span className="text-lg font-bold text-white group-hover:text-violet-300 transition-colors">
-                Notara
-              </span>
-            </a>
-            <nav aria-label="Primary" className="flex items-center gap-6 ml-6">
-              <a
-                href="/app"
-                className="text-sm text-[#a1a1aa] hover:text-white transition-colors"
-              >
-                Transcribe
-              </a>
-              <a
-                href="/viewer"
-                className="text-sm text-[#a1a1aa] hover:text-white transition-colors"
-              >
-                Viewer
-              </a>
-              <a
-                href="/pricing"
-                className="text-sm text-[#a1a1aa] hover:text-white transition-colors"
-              >
-                Pricing
-              </a>
-            </nav>
-            <div className="ml-auto flex items-center gap-3">
-              <a
-                href="/signin"
-                className="text-sm text-[#a1a1aa] hover:text-white transition-colors"
-              >
-                Sign in
-              </a>
-              <a
-                href="/pricing"
-                className="rounded-md bg-gradient-to-r from-violet-600 to-indigo-700 px-4 py-1.5 text-sm font-semibold text-white hover:opacity-90 transition-opacity"
-              >
-                Get Pro
-              </a>
-            </div>
-          </div>
-        </header>
+        <Header />
         <main>{children}</main>
         <footer className="border-t border-[#27272a] py-8 px-6 mt-20">
           <div className="mx-auto max-w-5xl flex flex-col sm:flex-row items-center justify-between gap-4">
@@ -90,17 +47,28 @@ export default function RootLayout({
               </div>
               <span className="text-sm font-semibold text-white">Notara</span>
             </div>
-            <nav aria-label="Footer" className="flex gap-6">
+            <nav aria-label="Footer" className="flex flex-wrap justify-center gap-x-6 gap-y-2">
               <a href="/pricing" className="text-xs text-[#71717a] hover:text-white transition-colors">Pricing</a>
               <a href="/app" className="text-xs text-[#71717a] hover:text-white transition-colors">Transcribe</a>
               <a href="/viewer" className="text-xs text-[#71717a] hover:text-white transition-colors">Viewer</a>
               <a href="/signin" className="text-xs text-[#71717a] hover:text-white transition-colors">Sign in</a>
             </nav>
-            <p className="text-xs text-[#71717a]">
+            <p className="text-xs text-[#71717a] text-center">
               © {new Date().getFullYear()} Notara. Powered by Demucs · Basic Pitch · music21
             </p>
           </div>
         </footer>
+        <Toaster
+          theme="dark"
+          position="bottom-right"
+          toastOptions={{
+            style: {
+              background: "#18181b",
+              border: "1px solid #27272a",
+              color: "#fafafa",
+            },
+          }}
+        />
       </body>
     </html>
   );

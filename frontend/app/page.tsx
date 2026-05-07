@@ -42,13 +42,19 @@ export default function LandingPage() {
           <div className="mt-10 flex flex-col sm:flex-row gap-4 justify-center">
             <Link
               href="/app"
-              className="rounded-lg bg-gradient-to-r from-violet-600 to-indigo-700 px-8 py-3.5 text-base font-semibold text-white hover:opacity-90 transition-opacity shadow-lg shadow-violet-900/30"
+              className="rounded-lg bg-gradient-to-r from-violet-600 to-indigo-700 px-8 py-3.5 text-base font-semibold text-white hover:opacity-90 transition-opacity shadow-lg shadow-violet-900/30 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet-500 focus-visible:ring-offset-2 focus-visible:ring-offset-[#09090b]"
             >
               Try it free →
             </Link>
             <Link
+              href="/demo"
+              className="rounded-lg border border-violet-500/40 bg-violet-500/5 px-8 py-3.5 text-base font-semibold text-violet-300 hover:bg-violet-500/10 hover:border-violet-500/60 transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet-500 focus-visible:ring-offset-2 focus-visible:ring-offset-[#09090b]"
+            >
+              ▶ See a live demo
+            </Link>
+            <Link
               href="/pricing"
-              className="rounded-lg border border-[#27272a] bg-[#111113] px-8 py-3.5 text-base font-semibold text-[#a1a1aa] hover:text-white hover:border-[#3f3f46] transition-all"
+              className="rounded-lg border border-[#27272a] bg-[#111113] px-8 py-3.5 text-base font-semibold text-[#a1a1aa] hover:text-white hover:border-[#3f3f46] transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet-500 focus-visible:ring-offset-2 focus-visible:ring-offset-[#09090b]"
             >
               See pricing
             </Link>

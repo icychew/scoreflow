@@ -127,7 +127,7 @@ export default function AbcViewer({ abcText, onError }: AbcViewerProps) {
             <button
               type="button"
               onClick={handlePause}
-              className="flex items-center gap-1.5 rounded-lg bg-violet-700 px-4 py-2 text-sm font-semibold text-white hover:bg-violet-600 transition-colors"
+              className="flex items-center gap-1.5 rounded-lg bg-violet-700 px-4 py-2 text-sm font-semibold text-white hover:bg-violet-600 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet-500 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950"
             >
               <span className="text-base leading-none">⏸</span>
               Pause
@@ -136,7 +136,7 @@ export default function AbcViewer({ abcText, onError }: AbcViewerProps) {
             <button
               type="button"
               onClick={handlePlay}
-              className="flex items-center gap-1.5 rounded-lg bg-violet-700 px-4 py-2 text-sm font-semibold text-white hover:bg-violet-600 transition-colors"
+              className="flex items-center gap-1.5 rounded-lg bg-violet-700 px-4 py-2 text-sm font-semibold text-white hover:bg-violet-600 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet-500 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950"
             >
               <span className="text-base leading-none">▶</span>
               Play
@@ -145,7 +145,7 @@ export default function AbcViewer({ abcText, onError }: AbcViewerProps) {
           <button
             type="button"
             onClick={handleStop}
-            className="flex items-center gap-1.5 rounded-lg border border-slate-600 bg-slate-800 px-4 py-2 text-sm font-medium text-slate-300 hover:bg-slate-700 transition-colors"
+            className="flex items-center gap-1.5 rounded-lg border border-slate-600 bg-slate-800 px-4 py-2 text-sm font-medium text-slate-300 hover:bg-slate-700 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet-500 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950"
           >
             <span className="text-base leading-none">■</span>
             Stop
