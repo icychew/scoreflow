@@ -12,9 +12,11 @@ const MusicXmlViewer = dynamic(() => import("@/components/MusicXmlViewer"), {
 interface SharedScoreListProps {
   jobId: string;
   scores: Record<string, string[]>;
+  /** Share token used to authorize the /score viewer when opened from a public share */
+  token: string;
 }
 
-export default function SharedScoreList({ jobId, scores }: SharedScoreListProps) {
+export default function SharedScoreList({ jobId, scores, token }: SharedScoreListProps) {
   const stems = Object.keys(scores);
 
   return (
@@ -36,6 +38,7 @@ export default function SharedScoreList({ jobId, scores }: SharedScoreListProps)
             jobId={jobId}
             stem={stem}
             hasMidi={scores[stem].includes("mid")}
+            shareToken={token}
           />
         </div>
       ))}

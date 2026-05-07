@@ -106,7 +106,11 @@ export default async function SharePage({ params }: PageProps) {
       </div>
 
       {/* Per-stem viewer */}
-      <SharedScoreList jobId={shareRow.job_id} scores={jobState.scores} />
+      <SharedScoreList
+        jobId={shareRow.job_id}
+        scores={jobState.scores}
+        token={token}
+      />
 
       {/* Convert your own CTA */}
       <div className="mt-12 rounded-2xl border border-violet-500/30 bg-gradient-to-br from-violet-900/20 to-indigo-900/10 p-6 sm:p-8 text-center">

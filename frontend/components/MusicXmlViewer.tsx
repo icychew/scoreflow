@@ -8,6 +8,8 @@ interface MusicXmlViewerProps {
   stem: string;
   /** Whether the backend generated a MIDI file for this stem */
   hasMidi: boolean;
+  /** Share token, propagated to /score links so shared viewers can open the PDF view */
+  shareToken?: string;
 }
 
 type LoadPhase = "loading" | "ready" | "error";
@@ -26,7 +28,10 @@ function midiToNoteName(midi: number): string {
   return `${NAMES[clamped % 12]}${octave}`;
 }
 
-export default function MusicXmlViewer({ jobId, stem, hasMidi }: MusicXmlViewerProps) {
+export default function MusicXmlViewer({ jobId, stem, hasMidi, shareToken }: MusicXmlViewerProps) {
+  const scoreUrl = shareToken
+    ? `/score/${jobId}/${stem}?print=1&token=${encodeURIComponent(shareToken)}`
+    : `/score/${jobId}/${stem}?print=1`;
   const osmdContainerRef = useRef<HTMLDivElement>(null);
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const osmdRef = useRef<any>(null);
@@ -295,9 +300,22 @@ export default function MusicXmlViewer({ jobId, stem, hasMidi }: MusicXmlViewerP
         }}
       />
 
-      {/* Playback controls — only shown when MIDI loaded successfully */}
-      {phase === "ready" && hasMidi && midiReady && (
+      {/* Action bar — always shown when score loads. Includes PDF/print +
+          (when MIDI is available) playback controls. */}
+      {phase === "ready" && (
         <div className="flex flex-col gap-3 border-t border-slate-200 bg-slate-50 px-4 py-3 sm:flex-row sm:items-center sm:flex-wrap sm:gap-4">
+          {/* PDF / open full-screen — always available */}
+          <a
+            href={scoreUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="flex items-center gap-1.5 rounded-md border border-slate-300 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet-500 focus-visible:ring-offset-1 focus-visible:ring-offset-slate-50"
+          >
+            📄 Save as PDF
+          </a>
+
+          {hasMidi && midiReady && (
+          <>
           {/* Transport */}
           <div className="flex items-center gap-2">
             <span className="text-xs font-medium text-slate-500 mr-1">Playback:</span>
@@ -385,6 +403,8 @@ export default function MusicXmlViewer({ jobId, stem, hasMidi }: MusicXmlViewerP
 
           {playError && (
             <span className="text-xs text-red-600 basis-full">⚠ {playError}</span>
+          )}
+          </>
           )}
         </div>
       )}

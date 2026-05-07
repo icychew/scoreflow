@@ -149,13 +149,23 @@ export default function ResultsPanel({ jobId, scores, omrScores, refinementScore
                 );
               })}
               {scores[stem].includes("musicxml") && (
-                <button
-                  type="button"
-                  onClick={() => toggleViewer(stem)}
-                  className="rounded-md bg-slate-700 px-3 py-1 text-xs font-semibold text-slate-200 hover:bg-slate-600 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet-500 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950"
-                >
-                  {openViewers.has(stem) ? "✕ Close" : "♪ View & Play ▶"}
-                </button>
+                <>
+                  <button
+                    type="button"
+                    onClick={() => toggleViewer(stem)}
+                    className="rounded-md bg-slate-700 px-3 py-1 text-xs font-semibold text-slate-200 hover:bg-slate-600 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet-500 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950"
+                  >
+                    {openViewers.has(stem) ? "✕ Close" : "♪ View & Play ▶"}
+                  </button>
+                  <a
+                    href={`/score/${jobId}/${stem}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="rounded-md border border-slate-600 bg-slate-800 px-3 py-1 text-xs font-semibold text-slate-200 hover:bg-slate-700 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet-500 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950"
+                  >
+                    📄 PDF
+                  </a>
+                </>
               )}
             </div>
             {openViewers.has(stem) && (

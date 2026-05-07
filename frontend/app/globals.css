@@ -15,3 +15,35 @@ body {
   background: var(--notara-bg);
   color: var(--notara-text-primary);
 }
+
+/*
+ * Print styles — used by /score/[jobId]/[stem] to produce clean
+ * "Save as PDF" output. Hides toolbars, the global header, footer, and
+ * any element marked with `.no-print`. Page background must be white
+ * for the score to read correctly.
+ */
+@media print {
+  body,
+  html {
+    background: #ffffff !important;
+    color: #000000 !important;
+  }
+
+  /* Hide global chrome on score routes */
+  body > header,
+  body > footer,
+  .no-print,
+  [data-sonner-toaster] {
+    display: none !important;
+  }
+
+  /* Remove browser default page margins inside the score so it fills A4 */
+  @page {
+    margin: 12mm 10mm;
+  }
+
+  /* Avoid awkward page breaks across staves */
+  svg {
+    page-break-inside: avoid;
+  }
+}
