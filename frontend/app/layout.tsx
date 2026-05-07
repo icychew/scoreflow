@@ -5,31 +5,101 @@ import "./globals.css";
 const inter = Inter({ subsets: ["latin"] });
 
 export const metadata: Metadata = {
-  title: "ScoreFlow — Audio to Sheet Music",
-  description: "Upload an audio file and get sheet music (MusicXML) and MIDI in minutes using AI.",
+  title: "Notara — Convert Audio to Sheet Music with AI",
+  description:
+    "Upload any audio file and get a clean PDF sheet music score in seconds. Notara uses AI to separate stems and transcribe each instrument. Free to try — no signup needed.",
+  openGraph: {
+    title: "Notara — Convert Audio to Sheet Music with AI",
+    description:
+      "Upload audio. Get sheet music. Powered by AI stem separation and transcription.",
+    url: "https://notara.app",
+    siteName: "Notara",
+    images: [{ url: "/og-image.png", width: 1200, height: 630 }],
+    type: "website",
+  },
+  twitter: {
+    card: "summary_large_image",
+    title: "Notara — Convert Audio to Sheet Music with AI",
+    description: "Upload audio. Get sheet music. Powered by AI.",
+    images: ["/og-image.png"],
+  },
 };
 
-export default function RootLayout({ children }: { children: React.ReactNode }) {
+export default function RootLayout({
+  children,
+}: {
+  children: React.ReactNode;
+}) {
   return (
     <html lang="en">
-      <body className={`${inter.className} min-h-screen bg-slate-950 text-slate-100 antialiased`}>
-        <header className="border-b border-slate-800 px-6 py-4">
-          <div className="mx-auto flex max-w-4xl items-center gap-3">
-            <span className="text-2xl">🎼</span>
-            <a href="/" className="text-lg font-bold text-violet-400 hover:text-violet-300">
-              ScoreFlow
+      <body
+        className={`${inter.className} min-h-screen bg-[#09090b] text-white antialiased`}
+      >
+        <header className="border-b border-[#27272a] px-6 py-4">
+          <div className="mx-auto flex max-w-5xl items-center gap-4">
+            <a href="/" className="flex items-center gap-2 group">
+              <div className="w-7 h-7 rounded-md bg-gradient-to-br from-violet-600 to-indigo-700 flex items-center justify-center text-xs font-bold text-white">
+                N
+              </div>
+              <span className="text-lg font-bold text-white group-hover:text-violet-300 transition-colors">
+                Notara
+              </span>
             </a>
-            <span className="text-sm text-slate-500">Audio → Sheet Music</span>
-            <div className="ml-auto">
-              <a href="/viewer" className="text-sm font-medium text-slate-400 hover:text-violet-300 transition-colors">
-                🎵 Viewer
+            <nav className="flex items-center gap-6 ml-6">
+              <a
+                href="/app"
+                className="text-sm text-[#a1a1aa] hover:text-white transition-colors"
+              >
+                Transcribe
+              </a>
+              <a
+                href="/viewer"
+                className="text-sm text-[#a1a1aa] hover:text-white transition-colors"
+              >
+                Viewer
+              </a>
+              <a
+                href="/pricing"
+                className="text-sm text-[#a1a1aa] hover:text-white transition-colors"
+              >
+                Pricing
+              </a>
+            </nav>
+            <div className="ml-auto flex items-center gap-3">
+              <a
+                href="/signin"
+                className="text-sm text-[#a1a1aa] hover:text-white transition-colors"
+              >
+                Sign in
+              </a>
+              <a
+                href="/pricing"
+                className="rounded-md bg-gradient-to-r from-violet-600 to-indigo-700 px-4 py-1.5 text-sm font-semibold text-white hover:opacity-90 transition-opacity"
+              >
+                Get Pro
               </a>
             </div>
           </div>
         </header>
-        <main className="mx-auto max-w-4xl px-6 py-10">{children}</main>
-        <footer className="mt-16 border-t border-slate-800 py-6 text-center text-xs text-slate-600">
-          Powered by Demucs · Basic Pitch · music21
+        <main>{children}</main>
+        <footer className="border-t border-[#27272a] py-8 px-6 mt-20">
+          <div className="mx-auto max-w-5xl flex flex-col sm:flex-row items-center justify-between gap-4">
+            <div className="flex items-center gap-2">
+              <div className="w-5 h-5 rounded bg-gradient-to-br from-violet-600 to-indigo-700 flex items-center justify-center text-[10px] font-bold text-white">
+                N
+              </div>
+              <span className="text-sm font-semibold text-white">Notara</span>
+            </div>
+            <nav className="flex gap-6">
+              <a href="/pricing" className="text-xs text-[#71717a] hover:text-white transition-colors">Pricing</a>
+              <a href="/app" className="text-xs text-[#71717a] hover:text-white transition-colors">Transcribe</a>
+              <a href="/viewer" className="text-xs text-[#71717a] hover:text-white transition-colors">Viewer</a>
+              <a href="/signin" className="text-xs text-[#71717a] hover:text-white transition-colors">Sign in</a>
+            </nav>
+            <p className="text-xs text-[#71717a]">
+              © {new Date().getFullYear()} Notara. Powered by Demucs · Basic Pitch · music21
+            </p>
+          </div>
         </footer>
       </body>
     </html>

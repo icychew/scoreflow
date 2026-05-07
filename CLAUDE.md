@@ -1,4 +1,4 @@
-# ScoreFlow — AI Agent Context File
+# Notara — AI Agent Context File
 
 This file is the primary reference for any AI agent (Claude Code or otherwise) working on this repository.
 Read this before making any changes to the codebase.
@@ -7,7 +7,7 @@ Read this before making any changes to the codebase.
 
 ## What This Project Is
 
-**ScoreFlow** is a web app that converts audio files (MP3/WAV/FLAC) into sheet music (MusicXML) and MIDI files using a 4-stage AI pipeline:
+**Notara** is a web app that converts audio files (MP3/WAV/FLAC) into sheet music (PDF, MusicXML) and MIDI files using a 4-stage AI pipeline:
 
 ```
 Audio → [Demucs] → Stems → [Basic Pitch] → MIDI → [Quantizer] → [music21] → MusicXML
@@ -146,7 +146,7 @@ cd backend
 
 | Component | Platform | URL |
 |-----------|----------|-----|
-| Frontend | Vercel | https://scoreflow-gamma.vercel.app |
+| Frontend | Vercel | https://notara.vercel.app |
 | Backend | ngrok (local) | Changes on restart — see deployment-guide.md |
 | Repository | GitHub | https://github.com/icychew/scoreflow |
 
