@@ -28,6 +28,22 @@ function midiToNoteName(midi: number): string {
   return `${NAMES[clamped % 12]}${octave}`;
 }
 
+/**
+ * Resolve the Tone.js namespace, handling both ESM (named exports at top
+ * level) and CJS-interop (everything wrapped in `default`) shapes. In the
+ * production Turbopack build Tone.js comes through as `{ default: { ... } }`,
+ * which is why `Tone.start` was undefined → "t.start is not a function".
+ */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+async function loadTone(): Promise<any> {
+  const mod = await import("tone");
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const m = mod as any;
+  if (typeof m.start === "function") return m;
+  if (m.default && typeof m.default.start === "function") return m.default;
+  throw new Error("Tone.js loaded but `start` function not found on the module.");
+}
+
 export default function MusicXmlViewer({ jobId, stem, hasMidi, shareToken }: MusicXmlViewerProps) {
   const scoreUrl = shareToken
     ? `/score/${jobId}/${stem}?print=1&token=${encodeURIComponent(shareToken)}`
@@ -166,7 +182,7 @@ export default function MusicXmlViewer({ jobId, stem, hasMidi, shareToken }: Mus
     setPlayError(null);
     try {
       const [Tone, { Midi }] = await Promise.all([
-        import("tone"),
+        loadTone(),
         import("@tonejs/midi"),
       ]);
       toneModuleRef.current = Tone;
@@ -242,7 +258,7 @@ export default function MusicXmlViewer({ jobId, stem, hasMidi, shareToken }: Mus
   const handlePause = async () => {
     clearPlayTimer();
     try {
-      const Tone = await import("tone");
+      const Tone = await loadTone();
       Tone.getTransport().pause();
     } catch { /* ignore */ }
     setIsPlaying(false);
@@ -251,7 +267,7 @@ export default function MusicXmlViewer({ jobId, stem, hasMidi, shareToken }: Mus
   const handleStop = async () => {
     clearPlayTimer();
     try {
-      const Tone = await import("tone");
+      const Tone = await loadTone();
       Tone.getTransport().stop();
       Tone.getTransport().cancel();
     } catch { /* ignore */ }
