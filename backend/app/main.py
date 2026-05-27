@@ -278,12 +278,13 @@ def health() -> dict[str, str]:
 async def create_job(
     file: UploadFile = File(...),
     quality: str = Form("standard"),
-    refine: bool = Form(False),
+    refine: bool = Form(True),  # Lever 3 in accuracy plan — chroma refinement default-on
 ) -> dict[str, Any]:
     """Upload an audio file and start pipeline processing.
 
     quality: 'standard' (Demucs + Basic Pitch) or 'high' (BS-RoFormer + piano_transcription).
-    refine: If True, run chroma-based refinement loop after score generation.
+    refine: If True (default), run chroma-based refinement loop after score
+            generation. Pass `refine=false` in the form to opt out for speed.
     """
     if quality not in ("standard", "high"):
         quality = "standard"

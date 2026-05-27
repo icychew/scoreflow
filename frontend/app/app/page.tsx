@@ -10,7 +10,8 @@ export default function AppPage() {
   const router = useRouter();
   const [loading, setLoading] = useState(false);
   const [quality, setQuality] = useState<Quality>("standard");
-  const [refine, setRefine] = useState(false);
+  // Refine defaults to true (Pristine mode) — matches the backend default
+  const [refine, setRefine] = useState(true);
 
   const handleUpload = async (file: File) => {
     setLoading(true);
@@ -79,26 +80,34 @@ export default function AppPage() {
           </span>
         )}
       </div>
-      {/* Refine toggle */}
-      <div className="flex items-center justify-center gap-3">
-        <button
-          type="button"
-          role="switch"
-          aria-checked={refine}
-          disabled={loading}
-          onClick={() => setRefine((r) => !r)}
-          className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none
-            ${refine ? "bg-violet-600" : "bg-slate-700"}
-            ${loading ? "cursor-not-allowed opacity-50" : "cursor-pointer"}`}
-        >
-          <span
-            className={`inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform
-              ${refine ? "translate-x-6" : "translate-x-1"}`}
-          />
-        </button>
-        <span className="text-sm text-slate-400">
-          Refine score{" "}
-          <span className="text-slate-600 text-xs">(re-transcribes bars with low chroma match — slower)</span>
+      {/* Pristine / Fast toggle — Lever 3 in accuracy plan */}
+      <div className="flex flex-col items-center gap-2">
+        <div className="flex rounded-lg border border-slate-700 bg-slate-900 p-1 gap-1">
+          {[
+            { value: true,  label: "Pristine ✦", desc: "Best accuracy. Re-transcribes weak bars via chroma analysis. ~30% slower." },
+            { value: false, label: "Fast",        desc: "Skips refinement. Faster turnaround at the cost of some accuracy." },
+          ].map(({ value, label }) => (
+            <button
+              key={String(value)}
+              type="button"
+              disabled={loading}
+              onClick={() => setRefine(value)}
+              aria-pressed={refine === value}
+              className={`rounded-md px-4 py-1.5 text-sm font-medium transition-colors
+                ${refine === value
+                  ? "bg-violet-600 text-white shadow"
+                  : "text-slate-400 hover:text-slate-200"
+                }
+                ${loading ? "cursor-not-allowed opacity-50" : "cursor-pointer"}`}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+        <span className="text-xs text-slate-500">
+          {refine
+            ? "Pristine: chroma refinement enabled (recommended)"
+            : "Fast: skips refinement — quicker but less accurate"}
         </span>
       </div>
       {/* Upload */}

@@ -91,18 +91,86 @@ def _get_tempo(midi: pretty_midi.PrettyMIDI, config: QuantizationConfig) -> floa
 
 
 def _snap_to_grid(time_value: float, grid_size: float, strength: float) -> float:
-    """Snap a time value to the nearest grid position with given strength.
+    """Snap a time value to the nearest fixed-tempo grid position.
 
     Args:
         time_value: Original time in seconds.
         grid_size: Grid spacing in seconds.
         strength: 0.0 = no change, 1.0 = full snap.
-
-    Returns:
-        Quantized time value.
     """
     nearest_grid = round(time_value / grid_size) * grid_size
     return time_value + (nearest_grid - time_value) * strength
+
+
+def _snap_to_beat_grid(
+    time_value: float,
+    beat_times: list[float],
+    subdivisions_per_beat: int,
+    strength: float,
+) -> float:
+    """Snap to the nearest beat-aware grid cell.
+
+    Beat-aware quantization respects local tempo changes (rubato): each beat
+    interval is divided into `subdivisions_per_beat` equal cells, so a note
+    that falls inside a slowed-down bar is still quantized correctly relative
+    to that bar's local pulse.
+
+    Args:
+        time_value: Original time in seconds.
+        beat_times: Sorted list of beat positions in seconds (from
+            `librosa.beat.beat_track(units="time")`).
+        subdivisions_per_beat: How many cells per beat. 4 = 16ths, 2 = 8ths.
+        strength: 0.0 = no change, 1.0 = full snap.
+
+    Returns:
+        Quantized time value.
+
+    Falls back to nearest beat extrapolation when `time_value` lies outside
+    the detected beat range — common for pickup notes before beat[0] or
+    long releases after beat[-1].
+    """
+    if not beat_times or subdivisions_per_beat <= 0:
+        return time_value
+
+    n = len(beat_times)
+    # Edge cases: before the first beat or after the last.
+    if time_value <= beat_times[0]:
+        # Extrapolate the first beat-interval backward
+        if n >= 2:
+            beat_dur = beat_times[1] - beat_times[0]
+        else:
+            beat_dur = 0.5  # 120 BPM fallback
+        cell = beat_dur / subdivisions_per_beat
+        nearest = beat_times[0] + round((time_value - beat_times[0]) / cell) * cell
+        return time_value + (nearest - time_value) * strength
+
+    if time_value >= beat_times[-1]:
+        if n >= 2:
+            beat_dur = beat_times[-1] - beat_times[-2]
+        else:
+            beat_dur = 0.5
+        cell = beat_dur / subdivisions_per_beat
+        nearest = beat_times[-1] + round((time_value - beat_times[-1]) / cell) * cell
+        return time_value + (nearest - time_value) * strength
+
+    # Binary search for the bracketing beat interval
+    lo, hi = 0, n - 1
+    while hi - lo > 1:
+        mid = (lo + hi) // 2
+        if beat_times[mid] <= time_value:
+            lo = mid
+        else:
+            hi = mid
+
+    # time_value is in [beat_times[lo], beat_times[hi])
+    beat_dur = beat_times[hi] - beat_times[lo]
+    if beat_dur <= 0:
+        return time_value
+    cell = beat_dur / subdivisions_per_beat
+    rel = time_value - beat_times[lo]
+    nearest_cell = round(rel / cell)
+    nearest = beat_times[lo] + nearest_cell * cell
+    return time_value + (nearest - time_value) * strength
 
 
 def _quantize_onsets(
@@ -110,16 +178,31 @@ def _quantize_onsets(
     grid_size: float,
     strength: float,
     min_note_duration: float,
+    beat_times: list[float] | None = None,
+    subdivisions_per_beat: int = 4,
 ) -> list[pretty_midi.Note]:
-    """Snap note onsets to the grid and adjust durations accordingly."""
+    """Snap note onsets to the grid and adjust durations accordingly.
+
+    When `beat_times` is provided, uses beat-aware snapping (respects local
+    tempo changes / rubato). Otherwise falls back to global fixed-tempo grid.
+    """
     quantized = []
+    use_beat_aware = beat_times is not None and len(beat_times) >= 2
+
     for note in notes:
         original_duration = note.end - note.start
-        new_start = _snap_to_grid(note.start, grid_size, strength)
-        new_start = max(0.0, new_start)
+        if use_beat_aware:
+            new_start = _snap_to_beat_grid(
+                note.start, beat_times, subdivisions_per_beat, strength,
+            )
+            new_end = _snap_to_beat_grid(
+                note.end, beat_times, subdivisions_per_beat, strength,
+            )
+        else:
+            new_start = _snap_to_grid(note.start, grid_size, strength)
+            new_end = _snap_to_grid(note.end, grid_size, strength)
 
-        # Snap end to grid as well for cleaner notation
-        new_end = _snap_to_grid(note.end, grid_size, strength)
+        new_start = max(0.0, new_start)
 
         # Ensure minimum duration
         if new_end - new_start < min_note_duration:
@@ -255,6 +338,7 @@ def quantize(
     input_path: Path,
     output_path: Path,
     config: QuantizationConfig | None = None,
+    beat_times: list[float] | None = None,
 ) -> QuantizationResult:
     """Quantize a MIDI file.
 
@@ -262,6 +346,11 @@ def quantize(
         input_path: Path to the raw MIDI file.
         output_path: Path to write the quantized MIDI file.
         config: Quantization configuration. Uses DEFAULT_CONFIG if None.
+        beat_times: Sorted list of beat positions in seconds (e.g. from
+            `librosa.beat.beat_track(units="time")`). When provided, the
+            quantizer uses beat-aware snapping which respects rubato and
+            local tempo changes. When omitted, falls back to fixed-tempo
+            grid snapping using `config.tempo` or the MIDI's own tempo.
 
     Returns:
         QuantizationResult with output path and statistics.
@@ -276,11 +365,14 @@ def quantize(
     if config is None:
         config = DEFAULT_CONFIG
 
+    use_beat_aware = beat_times is not None and len(beat_times) >= 2
     logger.info(
-        "Starting quantization: file='%s', subdivision=%d, strength=%.2f",
+        "Starting quantization: file='%s', subdivision=%d, strength=%.2f, "
+        "beat_aware=%s",
         input_path.name,
         config.subdivision,
         config.strength,
+        use_beat_aware,
     )
 
     start_time = time.monotonic()
@@ -298,8 +390,19 @@ def quantize(
     # divided by (subdivision / 4) to get the subdivision duration
     beats_per_subdivision = 4.0 / config.subdivision
     grid_size = (60.0 / tempo) * beats_per_subdivision
+    # For beat-aware snapping: how many cells per beat (4 = 16ths, 2 = 8ths)
+    subdivisions_per_beat = max(1, config.subdivision // 4)
 
-    logger.info("Tempo: %.1f BPM, grid size: %.4fs (%dth note)", tempo, grid_size, config.subdivision)
+    if use_beat_aware:
+        logger.info(
+            "Beat-aware quantization: %d beat positions, %d subdivisions/beat",
+            len(beat_times), subdivisions_per_beat,
+        )
+    else:
+        logger.info(
+            "Fixed-grid quantization: %.1f BPM, %.4fs (%dth note)",
+            tempo, grid_size, config.subdivision,
+        )
 
     total_notes = 0
     total_removed = 0
@@ -313,9 +416,14 @@ def quantize(
 
         original_count = len(instrument.notes)
 
-        # Step 1: Quantize onsets
+        # Step 1: Quantize onsets (beat-aware when beat_times provided)
         notes = _quantize_onsets(
-            instrument.notes, grid_size, config.strength, config.min_note_duration
+            instrument.notes,
+            grid_size,
+            config.strength,
+            config.min_note_duration,
+            beat_times=beat_times,
+            subdivisions_per_beat=subdivisions_per_beat,
         )
 
         # Step 2: Normalize velocities

@@ -36,7 +36,14 @@ export default function LandingPage() {
 
           <p className="mt-6 text-xl text-[#a1a1aa] max-w-2xl mx-auto leading-relaxed">
             Notara separates your recording into stems and transcribes each instrument
-            to a clean PDF score — powered by AI, ready in seconds.
+            to a clean PDF score — open-source pipeline, no GPU required,{" "}
+            <Link
+              href="/accuracy"
+              className="underline decoration-violet-500/40 underline-offset-4 hover:text-violet-300 transition-colors"
+            >
+              accuracy benchmarks published
+            </Link>
+            .
           </p>
 
           <div className="mt-10 flex flex-col sm:flex-row gap-4 justify-center">

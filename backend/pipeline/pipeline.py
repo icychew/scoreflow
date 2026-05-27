@@ -23,6 +23,7 @@ from pipeline.transcriber import transcribe, TranscriptionError, TranscriptionCo
 from pipeline.quantizer import quantize, QuantizationError, QuantizationConfig
 from pipeline.score_generator import generate_score, generate_pdf_from_musicxml, ScoreGenerationError, EmptyMIDIError, ScoreConfig
 from pipeline.simplifier import simplify_score
+from pipeline.postprocess import cleanup_midi_file, CleanupConfig
 
 logger = logging.getLogger(__name__)
 
@@ -64,6 +65,28 @@ def _detect_tempo(input_path: Path) -> float:
     except Exception as exc:
         logger.warning("Tempo detection failed (%s), defaulting to 120 BPM", exc)
         return 120.0
+
+
+def _detect_beat_times(input_path: Path) -> list[float]:
+    """Detect beat positions in seconds for beat-aware quantization.
+
+    Uses `librosa.beat.beat_track(units="time")`. Returns an empty list on
+    failure — the quantizer then falls back to fixed-tempo grid snapping.
+
+    Loaded with mono=True and duration capped at 5 minutes to keep memory
+    bounded on long uploads. Beat detection over 60s+ tends to be stable
+    enough that the head of the track gives a useful global grid.
+    """
+    try:
+        import librosa
+        y, sr = librosa.load(str(input_path), sr=None, mono=True, duration=300.0)
+        _, beats = librosa.beat.beat_track(y=y, sr=sr, units="time")
+        beats_list = [float(t) for t in beats if t >= 0.0]
+        logger.info("Detected %d beat positions for beat-aware quantization", len(beats_list))
+        return beats_list
+    except Exception as exc:
+        logger.warning("Beat detection failed (%s); fixed-grid fallback will be used", exc)
+        return []
 
 
 @dataclass
@@ -184,6 +207,9 @@ def run_pipeline(
 
     # Detect song tempo before separation so all stems use the real BPM
     detected_bpm = _detect_tempo(input_path)
+    # Beat positions for beat-aware quantization (Lever 1, see plan).
+    # Empty list → quantizer falls back to fixed-tempo grid using detected_bpm.
+    beat_times = _detect_beat_times(input_path)
 
     # Stage 1: Source Separation
     logger.info("=" * 50)
@@ -252,11 +278,32 @@ def run_pipeline(
             result.reports.append(report)
             continue
 
+        # Stage 2.5: Post-processing cleanup (Lever 2 in accuracy plan).
+        # Drops ghost notes, merges artifacts, clusters near-simultaneous onsets.
+        # Operates in-place on the transcribed MIDI file path. Failures here
+        # are non-fatal — the un-cleaned MIDI is still usable downstream.
+        try:
+            cleanup_report = cleanup_midi_file(midi_path, midi_path)
+            logger.info(
+                "Cleanup: %d -> %d notes (short:%d, low-vel:%d, merged:%d, clustered:%d)",
+                cleanup_report.notes_before,
+                cleanup_report.notes_after,
+                cleanup_report.dropped_short,
+                cleanup_report.dropped_low_velocity,
+                cleanup_report.merged_same_pitch,
+                cleanup_report.clustered_onsets,
+            )
+            # Update note count for the threshold check below
+            trans_result_note_count = cleanup_report.notes_after
+        except Exception as exc:
+            logger.warning("Cleanup failed for '%s' (%s); using un-cleaned MIDI", stem_name, exc)
+            trans_result_note_count = trans_result.note_count
+
         # Quality gate: skip stems with too few notes (too noisy to produce a readable score)
-        if trans_result.note_count < MIN_NOTES_THRESHOLD:
+        if trans_result_note_count < MIN_NOTES_THRESHOLD:
             logger.warning(
                 "Skipping '%s': only %d notes detected (threshold: %d) — stem too noisy",
-                stem_name, trans_result.note_count, MIN_NOTES_THRESHOLD,
+                stem_name, trans_result_note_count, MIN_NOTES_THRESHOLD,
             )
             report.stages.append(StageStatus(
                 stage="quantization",
@@ -301,7 +348,11 @@ def run_pipeline(
             effective_quant = QuantizationConfig(tempo=detected_bpm)
 
         try:
-            quant_result = quantize(midi_path, quantized_path, config=effective_quant)
+            quant_result = quantize(
+                midi_path, quantized_path,
+                config=effective_quant,
+                beat_times=beat_times if beat_times else None,
+            )
             result.quantized_midi[stem_name] = quant_result.output_path
             report.stages.append(StageStatus(
                 stage="quantization",

@@ -132,15 +132,52 @@ def _compare_notes(
     return true_positives, false_positives, false_negatives
 
 
+def _extract_key_and_time_sig(musicxml_path: Path) -> tuple[str, str]:
+    """Parse a MusicXML file and return (key_signature, time_signature) strings.
+
+    Returns ("", "") if parsing fails or the score has no metadata.
+    """
+    try:
+        from music21 import converter, key as m21_key, meter
+        score = converter.parse(str(musicxml_path))
+
+        # Key: prefer explicit KeySignature, else analyze
+        ks = next(iter(score.recurse().getElementsByClass(m21_key.KeySignature)), None)
+        if ks is not None:
+            try:
+                # KeySignature.asKey returns a Key with tonic + mode
+                k = ks.asKey()
+                key_str = f"{k.tonic.name} {k.mode}"
+            except Exception:
+                key_str = str(ks)
+        else:
+            try:
+                key_str = str(score.analyze("key"))
+            except Exception:
+                key_str = ""
+
+        ts = next(iter(score.recurse().getElementsByClass(meter.TimeSignature)), None)
+        ts_str = ts.ratioString if ts is not None else ""
+
+        return key_str, ts_str
+    except Exception:
+        return "", ""
+
+
 def evaluate_sample(
     sample_dir: Path,
     output_dir: Path,
+    stem_aware: bool = False,
 ) -> AccuracyMetrics:
     """Evaluate a single test sample through the pipeline.
 
     Args:
         sample_dir: Directory containing input.wav and optionally ground_truth.mid.
         output_dir: Directory for pipeline output.
+        stem_aware: When True and ground_truth_<stem>.mid files exist alongside
+            ground_truth.mid, compare each detected stem against its matching
+            ground-truth stem instead of lumping everything together. Better
+            scoring for MUSDB18-style per-stem references.
 
     Returns:
         AccuracyMetrics for this sample.
@@ -186,29 +223,71 @@ def evaluate_sample(
         metrics.processing_time_seconds = time.monotonic() - start_time
         return metrics
 
-    # TODO: Extract key and time signature from generated MusicXML scores
-    # when music21 is available. Currently the pipeline result doesn't
-    # expose these directly — requires parsing the MusicXML output.
+    # Extract key + time signature from the first generated MusicXML.
+    # The pipeline can produce multiple stems; we read the first one with
+    # a valid file, which is typically the most musically dominant.
+    for stem_name, xml_path in result.scores.items():
+        if xml_path.exists():
+            ks, ts = _extract_key_and_time_sig(xml_path)
+            metrics.key_detected = ks
+            metrics.time_signature_detected = ts
+            metrics.key_correct = bool(
+                metrics.key_expected and ks
+                and metrics.key_expected.strip().lower() == ks.strip().lower()
+            )
+            metrics.time_signature_correct = bool(
+                metrics.time_signature_expected and ts
+                and metrics.time_signature_expected == ts
+            )
+            break
 
     # Compare against ground truth if available
     ground_truth_path = sample_dir / "ground_truth.mid"
     if ground_truth_path.exists() and result.quantized_midi:
         try:
-            ref_notes = _load_midi_notes(ground_truth_path)
-            metrics.total_reference_notes = len(ref_notes)
+            if stem_aware:
+                # Per-stem comparison: ground_truth_<stem>.mid wins over
+                # the lumped ground_truth.mid when both exist.
+                total_tp = total_fp = total_fn = 0
+                total_ref = total_det = 0
+                for stem_name, det_path in result.quantized_midi.items():
+                    stem_gt = sample_dir / f"ground_truth_{stem_name}.mid"
+                    if not stem_gt.exists():
+                        continue
+                    ref = _load_midi_notes(stem_gt)
+                    det = _load_midi_notes(det_path)
+                    tp, fp, fn = _compare_notes(ref, det)
+                    total_tp += tp
+                    total_fp += fp
+                    total_fn += fn
+                    total_ref += len(ref)
+                    total_det += len(det)
 
-            # Compare each quantized stem's MIDI against ground truth
-            all_detected = []
-            for stem_name, midi_path in result.quantized_midi.items():
-                detected = _load_midi_notes(midi_path)
-                all_detected.extend(detected)
+                if total_ref == 0:
+                    # No per-stem ground truth found; fall through to lumped
+                    raise RuntimeError("no per-stem ground truth")
 
-            metrics.total_detected_notes = len(all_detected)
+                metrics.total_reference_notes = total_ref
+                metrics.total_detected_notes = total_det
+                metrics.true_positives = total_tp
+                metrics.false_positives = total_fp
+                metrics.false_negatives = total_fn
+            else:
+                ref_notes = _load_midi_notes(ground_truth_path)
+                metrics.total_reference_notes = len(ref_notes)
 
-            tp, fp, fn = _compare_notes(ref_notes, all_detected)
-            metrics.true_positives = tp
-            metrics.false_positives = fp
-            metrics.false_negatives = fn
+                # Compare each quantized stem's MIDI against ground truth
+                all_detected = []
+                for stem_name, midi_path in result.quantized_midi.items():
+                    detected = _load_midi_notes(midi_path)
+                    all_detected.extend(detected)
+
+                metrics.total_detected_notes = len(all_detected)
+
+                tp, fp, fn = _compare_notes(ref_notes, all_detected)
+                metrics.true_positives = tp
+                metrics.false_positives = fp
+                metrics.false_negatives = fn
         except Exception as exc:
             logger.error("Failed to compare MIDI for '%s': %s", sample_name, exc)
 
@@ -300,6 +379,12 @@ def main() -> None:
         default=None,
         help="Path for markdown report (default: <output-dir>/accuracy-benchmark.md)",
     )
+    parser.add_argument(
+        "--stem-aware",
+        action="store_true",
+        help="Match detected stems to per-stem ground-truth MIDI files "
+        "(ground_truth_<stem>.mid). Better scoring for MUSDB18-style refs.",
+    )
     parser.add_argument("--verbose", "-v", action="store_true")
 
     args = parser.parse_args()
@@ -333,7 +418,7 @@ def main() -> None:
         logger.info("Evaluating: %s", sample_dir.name)
         logger.info("=" * 50)
 
-        metrics = evaluate_sample(sample_dir, args.output_dir)
+        metrics = evaluate_sample(sample_dir, args.output_dir, stem_aware=args.stem_aware)
         all_metrics.append(metrics)
 
         if metrics.error:
