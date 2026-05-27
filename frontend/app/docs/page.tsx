@@ -70,22 +70,38 @@ const ENDPOINTS: Endpoint[] = [
   "total_time_seconds": 47.2,
   "downloads": {
     "vocals": {
-      "musicxml": "${baseUrl}/api/v1/jobs/abc123/download/vocals/musicxml",
+      "musicxml": {
+        "easy":   "${baseUrl}/api/v1/jobs/abc123/download/vocals/musicxml?difficulty=easy",
+        "medium": "${baseUrl}/api/v1/jobs/abc123/download/vocals/musicxml?difficulty=medium",
+        "hard":   "${baseUrl}/api/v1/jobs/abc123/download/vocals/musicxml"
+      },
       "mid": "${baseUrl}/api/v1/jobs/abc123/download/vocals/mid"
     },
     "bass": { ... },
     "other": { ... }
-  }
+  },
+  "score_difficulties": { "vocals": ["easy","medium","hard"], "bass": ["easy","medium","hard"], "other": ["easy","medium","hard"] }
 }`,
   },
   {
     method: "GET",
     path: "/api/v1/jobs/{id}/download/{stem}/{fmt}",
     summary:
-      "Download a single artifact. Supported formats: musicxml, mid (and pdf when available).",
-    example: `curl -H "Authorization: Bearer $NOTARA_KEY" \\
+      "Download a single artifact. Formats: musicxml, mid, pdf. Add ?difficulty=easy|medium|hard to fetch a simplified variant (default: hard = original transcription). MIDI is identical across difficulties.",
+    example: `# Original (default)
+curl -H "Authorization: Bearer $NOTARA_KEY" \\
   -o vocals.musicxml \\
-  "${baseUrl}/api/v1/jobs/abc123/download/vocals/musicxml"`,
+  "${baseUrl}/api/v1/jobs/abc123/download/vocals/musicxml"
+
+# Beginner-friendly: quarter-note floor, single-line, in-key
+curl -H "Authorization: Bearer $NOTARA_KEY" \\
+  -o vocals-easy.musicxml \\
+  "${baseUrl}/api/v1/jobs/abc123/download/vocals/musicxml?difficulty=easy"
+
+# Intermediate: eighth-note floor, top-2-of-chord
+curl -H "Authorization: Bearer $NOTARA_KEY" \\
+  -o vocals-medium.pdf \\
+  "${baseUrl}/api/v1/jobs/abc123/download/vocals/pdf?difficulty=medium"`,
     responseExample: "(binary file body)",
   },
 ];

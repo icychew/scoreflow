@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { downloadUrl, NGROK_HEADERS } from "@/lib/api";
+import { downloadUrl, NGROK_HEADERS, type Difficulty } from "@/lib/api";
 
 interface MusicXmlViewerProps {
   jobId: string;
@@ -10,6 +10,8 @@ interface MusicXmlViewerProps {
   hasMidi: boolean;
   /** Share token, propagated to /score links so shared viewers can open the PDF view */
   shareToken?: string;
+  /** Which difficulty variant to fetch. Defaults to "hard" (original transcription). */
+  difficulty?: Difficulty;
 }
 
 type LoadPhase = "loading" | "ready" | "error";
@@ -44,10 +46,17 @@ async function loadTone(): Promise<any> {
   throw new Error("Tone.js loaded but `start` function not found on the module.");
 }
 
-export default function MusicXmlViewer({ jobId, stem, hasMidi, shareToken }: MusicXmlViewerProps) {
+export default function MusicXmlViewer({
+  jobId,
+  stem,
+  hasMidi,
+  shareToken,
+  difficulty = "hard",
+}: MusicXmlViewerProps) {
+  const diffQuery = difficulty === "hard" ? "" : `&difficulty=${difficulty}`;
   const scoreUrl = shareToken
-    ? `/score/${jobId}/${stem}?print=1&token=${encodeURIComponent(shareToken)}`
-    : `/score/${jobId}/${stem}?print=1`;
+    ? `/score/${jobId}/${stem}?print=1&token=${encodeURIComponent(shareToken)}${diffQuery}`
+    : `/score/${jobId}/${stem}?print=1${diffQuery}`;
   const osmdContainerRef = useRef<HTMLDivElement>(null);
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const osmdRef = useRef<any>(null);
@@ -61,6 +70,9 @@ export default function MusicXmlViewer({ jobId, stem, hasMidi, shareToken }: Mus
   const playTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   // Latest transpose value, read at scheduling time (NOT in deps to avoid re-mount)
   const transposeRef = useRef(0);
+  // Cursor sync: rAF loop that advances OSMD's cursor in time with Tone playback
+  const rafIdRef = useRef<number | null>(null);
+  const isPlayingRef = useRef(false);
 
   const [phase, setPhase] = useState<LoadPhase>("loading");
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -90,7 +102,7 @@ export default function MusicXmlViewer({ jobId, stem, hasMidi, shareToken }: Mus
 
     async function load() {
       try {
-        const xmlRes = await fetch(downloadUrl(jobId, stem, "musicxml"), {
+        const xmlRes = await fetch(downloadUrl(jobId, stem, "musicxml", difficulty), {
           headers: NGROK_HEADERS,
         });
         if (!xmlRes.ok) throw new Error(`MusicXML fetch failed: HTTP ${xmlRes.status}`);
@@ -117,6 +129,13 @@ export default function MusicXmlViewer({ jobId, stem, hasMidi, shareToken }: Mus
         await osmd.load(xmlText);
         if (cancelled) return;
         osmd.render();
+
+        // Cursor is part of OSMD; show it parked at the start. It only
+        // moves while playback is active.
+        try {
+          osmd.cursor.show();
+          osmd.cursor.reset();
+        } catch { /* OSMD cursor unavailable on this score — ignore */ }
 
         if (hasMidi) {
           const midiRes = await fetch(downloadUrl(jobId, stem, "mid"), {
@@ -165,9 +184,60 @@ export default function MusicXmlViewer({ jobId, stem, hasMidi, shareToken }: Mus
       partRef.current = null;
       try { osmdRef.current?.clear?.(); } catch { /* ignore */ }
       osmdRef.current = null;
+      // Stop the cursor-sync loop in case Play was active when difficulty changed
+      isPlayingRef.current = false;
+      if (rafIdRef.current !== null) {
+        cancelAnimationFrame(rafIdRef.current);
+        rafIdRef.current = null;
+      }
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [jobId, stem, hasMidi]);
+  }, [jobId, stem, hasMidi, difficulty]);
+
+  /** Advance OSMD's cursor on every animation frame to match Tone.Transport time. */
+  function startCursorSync() {
+    const osmd = osmdRef.current;
+    const tone = toneModuleRef.current;
+    if (!osmd || !tone) return;
+    isPlayingRef.current = true;
+    try { osmd.cursor.show(); osmd.cursor.reset(); } catch { /* ignore */ }
+
+    const tick = () => {
+      if (!isPlayingRef.current) return;
+      try {
+        const seconds: number = tone.getTransport().seconds;
+        const bpm: number = tone.getTransport().bpm.value;
+        // Quarter-note position from elapsed time
+        const beat = (seconds * bpm) / 60;
+        const iter = osmd.cursor.iterator;
+        // Advance until the cursor's RealValue is >= current beat
+        // (RealValue is in whole notes; multiply by 4 to compare in quarters)
+        let safety = 0;
+        while (
+          iter &&
+          !iter.endReached &&
+          iter.currentTimeStamp &&
+          iter.currentTimeStamp.RealValue * 4 < beat &&
+          safety++ < 512
+        ) {
+          osmd.cursor.next();
+        }
+      } catch { /* ignore — cursor might not be available on every score */ }
+      rafIdRef.current = requestAnimationFrame(tick);
+    };
+    rafIdRef.current = requestAnimationFrame(tick);
+  }
+
+  function stopCursorSync(reset = false) {
+    isPlayingRef.current = false;
+    if (rafIdRef.current !== null) {
+      cancelAnimationFrame(rafIdRef.current);
+      rafIdRef.current = null;
+    }
+    if (reset) {
+      try { osmdRef.current?.cursor?.reset(); } catch { /* ignore */ }
+    }
+  }
 
   function clearPlayTimer() {
     if (playTimerRef.current !== null) {
@@ -236,6 +306,7 @@ export default function MusicXmlViewer({ jobId, stem, hasMidi, shareToken }: Mus
 
       Tone.getTransport().start("+0.1");
       setIsPlaying(true);
+      startCursorSync();
 
       // Auto-reset playing state when playback ends — scaled by tempo
       const headerBpm = midi.header.tempos[0]?.bpm ?? DEFAULT_BPM;
@@ -246,6 +317,7 @@ export default function MusicXmlViewer({ jobId, stem, hasMidi, shareToken }: Mus
       );
       playTimerRef.current = setTimeout(() => {
         playTimerRef.current = null;
+        stopCursorSync(true);
         setIsPlaying(false);
       }, (totalDuration * tempoRatio + 1) * 1000);
     } catch (err: unknown) {
@@ -257,6 +329,7 @@ export default function MusicXmlViewer({ jobId, stem, hasMidi, shareToken }: Mus
 
   const handlePause = async () => {
     clearPlayTimer();
+    stopCursorSync(false);
     try {
       const Tone = await loadTone();
       Tone.getTransport().pause();
@@ -266,6 +339,7 @@ export default function MusicXmlViewer({ jobId, stem, hasMidi, shareToken }: Mus
 
   const handleStop = async () => {
     clearPlayTimer();
+    stopCursorSync(true);
     try {
       const Tone = await loadTone();
       Tone.getTransport().stop();

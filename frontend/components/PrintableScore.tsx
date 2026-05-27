@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
-import { downloadUrl, NGROK_HEADERS } from "@/lib/api";
+import { downloadUrl, NGROK_HEADERS, type Difficulty } from "@/lib/api";
 
 interface PrintableScoreProps {
   jobId: string;
@@ -11,6 +11,8 @@ interface PrintableScoreProps {
   title: string;
   /** If true, opens the browser print dialog as soon as the score is rendered */
   autoPrint: boolean;
+  /** Which difficulty variant to load. Default "hard" (original transcription). */
+  difficulty?: Difficulty;
 }
 
 type Phase = "loading" | "ready" | "error";
@@ -28,6 +30,7 @@ export default function PrintableScore({
   stem,
   title,
   autoPrint,
+  difficulty = "hard",
 }: PrintableScoreProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -41,7 +44,7 @@ export default function PrintableScore({
 
     async function load() {
       try {
-        const xmlRes = await fetch(downloadUrl(jobId, stem, "musicxml"), {
+        const xmlRes = await fetch(downloadUrl(jobId, stem, "musicxml", difficulty), {
           headers: NGROK_HEADERS,
         });
         if (!xmlRes.ok) throw new Error(`HTTP ${xmlRes.status}`);
@@ -93,7 +96,7 @@ export default function PrintableScore({
       try { osmdRef.current?.clear?.(); } catch { /* ignore */ }
       osmdRef.current = null;
     };
-  }, [jobId, stem, autoPrint]);
+  }, [jobId, stem, autoPrint, difficulty]);
 
   return (
     <div className="min-h-screen bg-white text-black">
@@ -116,7 +119,7 @@ export default function PrintableScore({
         </div>
         <div className="flex items-center gap-2">
           <a
-            href={downloadUrl(jobId, stem, "musicxml")}
+            href={downloadUrl(jobId, stem, "musicxml", difficulty)}
             download={`${stem}.musicxml`}
             className="rounded-md border border-slate-300 bg-white px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-50 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet-500"
           >

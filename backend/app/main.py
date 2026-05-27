@@ -65,6 +65,8 @@ class JobState(BaseModel):
     total_time_seconds: float = 0.0
     omr_scores: dict[str, float] = {}  # stem → 0.0–1.0 confidence, or -1.0 = not run
     refinement_scores: dict[str, float] = {}  # stem → mean chroma similarity 0.0–1.0
+    # stem → list of difficulty variants available; "hard" always present when scored
+    score_difficulties: dict[str, list[str]] = {}
 
 
 _JOBS: dict[str, JobState] = {}
@@ -225,11 +227,25 @@ def _run_pipeline_thread(job_id: str, audio_path: Path, quality: str = "standard
             if fmts:
                 scores[stem] = fmts
 
+        # Cross-check what the pipeline reported vs what's on disk — only
+        # advertise a difficulty if the corresponding files actually exist.
+        verified_difficulties: dict[str, list[str]] = {}
+        for stem, reported in (result.score_difficulties or {}).items():
+            actual: list[str] = []
+            for diff in reported:
+                suffix = "" if diff == "hard" else f"-{diff}"
+                xml_p = output_dir / "scores" / f"{stem}{suffix}.musicxml"
+                if xml_p.exists():
+                    actual.append(diff)
+            if actual:
+                verified_difficulties[stem] = actual
+
         with _JOBS_LOCK:
             _JOBS[job_id].status = JobStatus.DONE
             _JOBS[job_id].scores = scores
             _JOBS[job_id].omr_scores = omr_scores
             _JOBS[job_id].refinement_scores = result.refinement_scores
+            _JOBS[job_id].score_difficulties = verified_difficulties
             _JOBS[job_id].total_time_seconds = result.total_time_seconds
             _JOBS[job_id].current_stage = "done"
 
@@ -311,26 +327,40 @@ def get_job(job_id: str) -> JobState:
     return _get_job(job_id)
 
 
+_ALLOWED_DIFFICULTIES = {"easy", "medium", "hard"}
+
+
 @app.get("/api/jobs/{job_id}/download/{stem}/{fmt}")
-def download_file(job_id: str, stem: str, fmt: str) -> FileResponse:
+def download_file(job_id: str, stem: str, fmt: str, difficulty: str = "hard") -> FileResponse:
     """Download a generated output file.
 
-    stem: vocals | bass | other | piano | guitar
-    fmt:  musicxml | mid
+    stem:        vocals | bass | other | piano | guitar
+    fmt:         musicxml | mid | pdf
+    difficulty:  easy | medium | hard  (default: hard = original transcription).
+                 Only meaningful for fmt in {musicxml, pdf}; ignored for mid.
     """
     _get_job(job_id)  # validates job exists
 
+    if difficulty not in _ALLOWED_DIFFICULTIES:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Unknown difficulty '{difficulty}'; expected easy/medium/hard",
+        )
+
     output_dir = JOBS_DIR / job_id / "output"
+    # "hard" keeps the original filenames; easy/medium append a suffix.
+    suffix = "" if difficulty == "hard" else f"-{difficulty}"
 
     if fmt == "pdf":
-        path = output_dir / "scores" / f"{stem}.pdf"
+        path = output_dir / "scores" / f"{stem}{suffix}.pdf"
         media_type = "application/pdf"
-        filename = f"{stem}.pdf"
+        filename = f"{stem}{suffix}.pdf"
     elif fmt == "musicxml":
-        path = output_dir / "scores" / f"{stem}.musicxml"
+        path = output_dir / "scores" / f"{stem}{suffix}.musicxml"
         media_type = "application/xml"
-        filename = f"{stem}.musicxml"
+        filename = f"{stem}{suffix}.musicxml"
     elif fmt == "mid":
+        # MIDI is not regenerated per difficulty — same file regardless
         path = output_dir / "quantized" / f"{stem}.mid"
         media_type = "audio/midi"
         filename = f"{stem}.mid"

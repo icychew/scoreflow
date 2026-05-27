@@ -12,6 +12,8 @@ export interface StageInfo {
   message: string;
 }
 
+export type Difficulty = "easy" | "medium" | "hard";
+
 export interface JobState {
   job_id: string;
   status: "queued" | "processing" | "done" | "failed";
@@ -22,6 +24,8 @@ export interface JobState {
   total_time_seconds: number;
   omr_scores?: Record<string, number>; // stem → 0.0–1.0 confidence, -1.0 = not run
   refinement_scores?: Record<string, number>; // stem → mean chroma similarity 0.0–1.0
+  /** stem → list of difficulty variants the pipeline produced */
+  score_difficulties?: Record<string, Difficulty[]>;
 }
 
 export type Quality = "standard" | "high";
@@ -55,7 +59,13 @@ export async function pollJob(jobId: string): Promise<JobState> {
   return res.json();
 }
 
-export function downloadUrl(jobId: string, stem: string, fmt: string): string {
-  // Append header as query param isn't possible for downloads; use anchor tag with header workaround
-  return `${API_URL}/api/jobs/${jobId}/download/${stem}/${fmt}`;
+export function downloadUrl(
+  jobId: string,
+  stem: string,
+  fmt: string,
+  difficulty: Difficulty = "hard",
+): string {
+  const base = `${API_URL}/api/jobs/${jobId}/download/${stem}/${fmt}`;
+  // "hard" preserves the legacy URL — no query string appended
+  return difficulty === "hard" ? base : `${base}?difficulty=${difficulty}`;
 }

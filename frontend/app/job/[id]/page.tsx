@@ -151,6 +151,7 @@ export default function JobPage() {
           omrScores={job.omr_scores ?? {}}
           refinementScores={job.refinement_scores ?? {}}
           totalTime={job.total_time_seconds}
+          scoreDifficulties={job.score_difficulties}
         />
       ) : !isFailed ? (
         <ResultsSkeleton />

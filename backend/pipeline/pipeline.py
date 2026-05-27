@@ -21,7 +21,8 @@ from pathlib import Path
 from pipeline.separator import separate, SeparationError
 from pipeline.transcriber import transcribe, TranscriptionError, TranscriptionConfig, VOCAL_CONFIG, PIANO_CONFIG, BASS_CONFIG, GUITAR_CONFIG, OTHER_CONFIG
 from pipeline.quantizer import quantize, QuantizationError, QuantizationConfig
-from pipeline.score_generator import generate_score, ScoreGenerationError, EmptyMIDIError, ScoreConfig
+from pipeline.score_generator import generate_score, generate_pdf_from_musicxml, ScoreGenerationError, EmptyMIDIError, ScoreConfig
+from pipeline.simplifier import simplify_score
 
 logger = logging.getLogger(__name__)
 
@@ -110,6 +111,9 @@ class PipelineResult:
     scores: dict[str, Path] = field(default_factory=dict)
     reports: list[StemReport] = field(default_factory=list)
     refinement_scores: dict[str, float] = field(default_factory=dict)  # stem → mean chroma similarity
+    # Per-stem list of difficulty variants successfully generated.
+    # "hard" is the original; "easy" and "medium" are simplified copies.
+    score_difficulties: dict[str, list[str]] = field(default_factory=dict)
 
     @property
     def summary(self) -> str:
@@ -394,6 +398,57 @@ def run_pipeline(
                     success=False,
                     error=str(exc),
                 ))
+
+        # Stage 6: Generate Easy / Medium difficulty variants.
+        # Reads the authoritative MusicXML (possibly refined), simplifies it,
+        # writes -easy / -medium variants for both MusicXML and PDF. Never
+        # touches the "hard" file — failures here don't break the job.
+        if stem_name in result.scores:
+            try:
+                from music21 import converter as m21_converter
+
+                authoritative_xml = result.scores[stem_name]
+                base_score = m21_converter.parse(str(authoritative_xml))
+                # If score_result was set above, use its detected key; otherwise
+                # let the simplifier fall back to C major.
+                try:
+                    key_sig = score_result.key_signature  # type: ignore[name-defined]
+                except NameError:
+                    key_sig = "C major"
+                produced: list[str] = ["hard"]
+
+                for difficulty in ("easy", "medium"):
+                    try:
+                        simplified = simplify_score(base_score, difficulty, key_sig)
+                        variant_xml = scores_dir / f"{stem_name}-{difficulty}.musicxml"
+                        simplified.write("musicxml", fp=str(variant_xml))
+
+                        # PDF: best-effort — keep going if rendering fails for one variant
+                        try:
+                            variant_pdf = scores_dir / f"{stem_name}-{difficulty}.pdf"
+                            generate_pdf_from_musicxml(variant_xml, variant_pdf)
+                        except Exception as pdf_exc:
+                            logger.warning(
+                                "PDF render failed for %s-%s: %s",
+                                stem_name, difficulty, pdf_exc,
+                            )
+
+                        produced.append(difficulty)
+                        logger.info("Generated %s variant for '%s'", difficulty, stem_name)
+                    except Exception as exc:
+                        logger.warning(
+                            "Could not generate %s variant for '%s': %s",
+                            difficulty, stem_name, exc,
+                        )
+
+                result.score_difficulties[stem_name] = produced
+            except Exception as exc:
+                logger.warning(
+                    "Skipping difficulty variants for '%s' (reload failed): %s",
+                    stem_name, exc,
+                )
+                # Still record that "hard" is available
+                result.score_difficulties[stem_name] = ["hard"]
 
         result.reports.append(report)
 

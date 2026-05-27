@@ -6,8 +6,10 @@ import PrintableScore from "@/components/PrintableScore";
 
 interface PageProps {
   params: Promise<{ jobId: string; stem: string }>;
-  searchParams: Promise<{ token?: string; print?: string }>;
+  searchParams: Promise<{ token?: string; print?: string; difficulty?: string }>;
 }
+
+const ALLOWED_DIFFICULTIES = new Set(["easy", "medium", "hard"]);
 
 export const metadata: Metadata = {
   title: "Score — Notara",
@@ -27,7 +29,10 @@ interface ShareRow {
 
 export default async function ScorePage({ params, searchParams }: PageProps) {
   const { jobId, stem } = await params;
-  const { token, print } = await searchParams;
+  const { token, print, difficulty: difficultyParam } = await searchParams;
+  const difficulty = ALLOWED_DIFFICULTIES.has(difficultyParam ?? "")
+    ? (difficultyParam as "easy" | "medium" | "hard")
+    : "hard";
 
   // Whitelist params before any DB lookup
   if (!/^[a-z0-9_-]+$/i.test(jobId) || !/^[a-z0-9_-]+$/i.test(stem)) {
@@ -95,6 +100,7 @@ export default async function ScorePage({ params, searchParams }: PageProps) {
       stem={stem}
       title={title}
       autoPrint={print === "1"}
+      difficulty={difficulty}
     />
   );
 }

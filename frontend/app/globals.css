@@ -17,6 +17,24 @@ body {
 }
 
 /*
+ * Progression cursor highlight for abcjs viewer. Notes flagged by
+ * SynthController.CursorControl pulse violet so the player can follow
+ * along while audio plays. The rule lives at the document level so it
+ * applies inside any AbcViewer instance, whether on /viewer, /demo,
+ * or embedded elsewhere.
+ */
+.abcjs-highlight {
+  fill: #7c3aed !important;     /* violet-600 */
+}
+.abcjs-highlight path,
+.abcjs-highlight rect,
+.abcjs-highlight ellipse,
+.abcjs-highlight line {
+  fill: #7c3aed !important;
+  stroke: #7c3aed !important;
+}
+
+/*
  * Print styles — used by /score/[jobId]/[stem] to produce clean
  * "Save as PDF" output. Hides toolbars, the global header, footer, and
  * any element marked with `.no-print`. Page background must be white

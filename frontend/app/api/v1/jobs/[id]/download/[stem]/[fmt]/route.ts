@@ -38,8 +38,17 @@ export async function GET(
     return NextResponse.json({ error: "Invalid path parameter" }, { status: 400 });
   }
 
+  // Pass through optional ?difficulty= to the pipeline backend
+  const callerUrl = new URL(req.url);
+  const difficulty = callerUrl.searchParams.get("difficulty");
+  const allowed = new Set(["easy", "medium", "hard"]);
+  const upstreamQs =
+    difficulty && allowed.has(difficulty) && difficulty !== "hard"
+      ? `?difficulty=${difficulty}`
+      : "";
+
   const upstream = await fetch(
-    `${PIPELINE_API}/api/jobs/${id}/download/${stem}/${fmt}`,
+    `${PIPELINE_API}/api/jobs/${id}/download/${stem}/${fmt}${upstreamQs}`,
     { headers: { "ngrok-skip-browser-warning": "true" } },
   ).catch(() => null);
 

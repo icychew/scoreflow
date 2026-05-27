@@ -49,12 +49,28 @@ export async function GET(
     );
   }
 
-  // Build download URLs for each (stem, format) combination
-  const downloads: Record<string, Record<string, string>> = {};
+  // Build download URLs for each (stem, format, difficulty) combination.
+  // MIDI doesn't vary by difficulty — same file regardless.
+  type FormatBucket = string | Record<string, string>;
+  const downloads: Record<string, Record<string, FormatBucket>> = {};
+  const difficulties: Record<string, string[]> = (live.score_difficulties ?? {}) as Record<string, string[]>;
+
   for (const [stem, formats] of Object.entries(live.scores)) {
     downloads[stem] = {};
+    const stemDiffs = difficulties[stem] ?? ["hard"];
     for (const fmt of formats as string[]) {
-      downloads[stem][fmt] = `${PUBLIC_BASE}/api/v1/jobs/${id}/download/${stem}/${fmt}`;
+      if (fmt === "mid" || stemDiffs.length <= 1) {
+        // Single URL — no difficulty variants
+        downloads[stem][fmt] = `${PUBLIC_BASE}/api/v1/jobs/${id}/download/${stem}/${fmt}`;
+      } else {
+        // One URL per difficulty
+        const byDiff: Record<string, string> = {};
+        for (const diff of stemDiffs) {
+          const q = diff === "hard" ? "" : `?difficulty=${diff}`;
+          byDiff[diff] = `${PUBLIC_BASE}/api/v1/jobs/${id}/download/${stem}/${fmt}${q}`;
+        }
+        downloads[stem][fmt] = byDiff;
+      }
     }
   }
 
@@ -68,6 +84,7 @@ export async function GET(
     error: live.error || null,
     total_time_seconds: live.total_time_seconds,
     downloads,
+    score_difficulties: difficulties,
     created_at: trans.created_at,
   });
 }

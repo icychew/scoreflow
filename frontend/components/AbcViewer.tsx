@@ -74,7 +74,37 @@ export default function AbcViewer({ abcText, onError }: AbcViewerProps) {
         }
 
         const controller = new abcjs.synth.SynthController();
-        controller.load(progressDivRef.current!, null, {
+        // CursorControl: abcjs invokes onEvent for each note as the synth plays
+        // it. We toggle a `.abcjs-highlight` class on the SVG elements so the
+        // user can see progression. CSS lives in app/globals.css.
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const cursorControl: any = {
+          beatSubdivisions: 2,
+          onReady: () => { /* no-op */ },
+          onStart: () => { /* no-op — first onEvent will highlight */ },
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          onEvent: (ev: any) => {
+            // Clear previous highlight
+            document
+              .querySelectorAll(".abcjs-highlight")
+              .forEach((el) => el.classList.remove("abcjs-highlight"));
+            // Highlight current — ev.elements is a 2D array of SVG elements
+            if (ev?.elements) {
+              for (const group of ev.elements) {
+                for (const el of group) {
+                  el.classList?.add("abcjs-highlight");
+                }
+              }
+            }
+          },
+          onFinished: () => {
+            document
+              .querySelectorAll(".abcjs-highlight")
+              .forEach((el) => el.classList.remove("abcjs-highlight"));
+            setIsPlaying(false);
+          },
+        };
+        controller.load(progressDivRef.current!, cursorControl, {
           displayLoop: false,
           displayRestart: false,
           displayPlay: false,
@@ -83,7 +113,12 @@ export default function AbcViewer({ abcText, onError }: AbcViewerProps) {
         });
         await controller.setTune(visualObj[0], false, {
           midiTranspose: transposeRef.current,
-          onEnded: () => setIsPlaying(false),
+          onEnded: () => {
+            document
+              .querySelectorAll(".abcjs-highlight")
+              .forEach((el) => el.classList.remove("abcjs-highlight"));
+            setIsPlaying(false);
+          },
         });
 
         if (cancelled) return;
@@ -128,12 +163,16 @@ export default function AbcViewer({ abcText, onError }: AbcViewerProps) {
   const handlePause = useCallback(() => {
     controllerRef.current?.pause();
     setIsPlaying(false);
+    // Keep the current highlight on pause — resumes from same place
   }, []);
 
   const handleStop = useCallback(() => {
     controllerRef.current?.pause();
     controllerRef.current?.restart();
     setIsPlaying(false);
+    document
+      .querySelectorAll(".abcjs-highlight")
+      .forEach((el) => el.classList.remove("abcjs-highlight"));
   }, []);
 
   const transposeLabel = transpose === 0
