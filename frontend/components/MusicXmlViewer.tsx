@@ -1,7 +1,11 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { toast } from "sonner";
 import { downloadUrl, NGROK_HEADERS, type Difficulty } from "@/lib/api";
+import { shiftPitchSemitones, convertNoteToRest } from "@/lib/scoreEditor";
+
+const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
 interface MusicXmlViewerProps {
   jobId: string;
@@ -12,6 +16,13 @@ interface MusicXmlViewerProps {
   shareToken?: string;
   /** Which difficulty variant to fetch. Defaults to "hard" (original transcription). */
   difficulty?: Difficulty;
+  /**
+   * If true, hides the Edit / Save / Revert controls. Used by the public
+   * `/share/[token]` viewer so recipients can't modify someone else's score.
+   * The backend has no auth, so this is purely a UI gate — power users with
+   * the job_id could still hit the PUT endpoint directly.
+   */
+  readOnly?: boolean;
 }
 
 type LoadPhase = "loading" | "ready" | "error";
@@ -52,6 +63,7 @@ export default function MusicXmlViewer({
   hasMidi,
   shareToken,
   difficulty = "hard",
+  readOnly = false,
 }: MusicXmlViewerProps) {
   const diffQuery = difficulty === "hard" ? "" : `&difficulty=${difficulty}`;
   const scoreUrl = shareToken
@@ -73,6 +85,11 @@ export default function MusicXmlViewer({
   // Cursor sync: rAF loop that advances OSMD's cursor in time with Tone playback
   const rafIdRef = useRef<number | null>(null);
   const isPlayingRef = useRef(false);
+  // Editor state — kept in refs alongside React state because the document
+  // keydown handler is registered once and needs to read the latest values.
+  const currentXmlRef = useRef<string>("");
+  const selectedNoteIndexRef = useRef<number | null>(null);
+  const isEditModeRef = useRef(false);
 
   const [phase, setPhase] = useState<LoadPhase>("loading");
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -83,10 +100,90 @@ export default function MusicXmlViewer({
   const [transpose, setTranspose] = useState(0);
   // Has the user manually moved the tempo slider? (If not, use the MIDI's native BPM.)
   const [tempoTouched, setTempoTouched] = useState(false);
+  // Editor state
+  const [isEditMode, setIsEditMode] = useState(false);
+  const [selectedNoteIndex, setSelectedNoteIndex] = useState<number | null>(null);
+  const [selectedNoteLabel, setSelectedNoteLabel] = useState<string>("");
+  const [isDirty, setIsDirty] = useState(false);
+  const [isEditedOnDisk, setIsEditedOnDisk] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
 
   useEffect(() => {
     transposeRef.current = transpose;
   }, [transpose]);
+
+  useEffect(() => {
+    isEditModeRef.current = isEditMode;
+  }, [isEditMode]);
+
+  useEffect(() => {
+    selectedNoteIndexRef.current = selectedNoteIndex;
+  }, [selectedNoteIndex]);
+
+  /**
+   * After OSMD renders, walk the SVG and attach `data-note-index` to each
+   * `.vf-notehead` so click events can be mapped back to source `<note>`
+   * elements in document order. VexFlow renders one notehead per chord
+   * member in source-document order, so the index lines up 1:1 with the
+   * MusicXML `<note>` element index.
+   */
+  function attachNoteIndexAttrs() {
+    const container = osmdContainerRef.current;
+    if (!container) return;
+    const noteheads = container.querySelectorAll<SVGElement>(".vf-notehead");
+    noteheads.forEach((el, idx) => {
+      el.setAttribute("data-note-index", String(idx));
+      el.style.cursor = isEditModeRef.current ? "pointer" : "";
+    });
+  }
+
+  /** Visually highlight the currently-selected notehead via CSS class. */
+  function refreshSelectionHighlight(index: number | null) {
+    const container = osmdContainerRef.current;
+    if (!container) return;
+    container.querySelectorAll(".notara-note-selected").forEach((el) => {
+      el.classList.remove("notara-note-selected");
+    });
+    if (index === null) return;
+    const el = container.querySelector<SVGElement>(
+      `.vf-notehead[data-note-index="${index}"]`,
+    );
+    el?.classList.add("notara-note-selected");
+  }
+
+  /** Compute a human label like "C4" for the selected note in the current XML. */
+  function computeNoteLabel(xml: string, index: number): string {
+    try {
+      const doc = new DOMParser().parseFromString(xml, "application/xml");
+      const note = doc.getElementsByTagName("note").item(index);
+      if (!note) return "—";
+      if (note.getElementsByTagName("rest").length > 0) return "rest";
+      const pitch = note.getElementsByTagName("pitch")[0];
+      if (!pitch) return "—";
+      const step = pitch.getElementsByTagName("step")[0]?.textContent ?? "?";
+      const alter = Number(pitch.getElementsByTagName("alter")[0]?.textContent ?? "0");
+      const octave = pitch.getElementsByTagName("octave")[0]?.textContent ?? "?";
+      const accidental = alter === 1 ? "♯" : alter === -1 ? "♭" : "";
+      return `${step}${accidental}${octave}`;
+    } catch {
+      return "—";
+    }
+  }
+
+  /** Re-load OSMD with a new MusicXML string. Re-attaches note indices. */
+  const reloadFromXml = useCallback(async (xml: string) => {
+    const osmd = osmdRef.current;
+    if (!osmd) return;
+    try {
+      await osmd.load(xml);
+      osmd.render();
+      attachNoteIndexAttrs();
+      refreshSelectionHighlight(selectedNoteIndexRef.current);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      toast.error("Could not re-render score", { description: msg });
+    }
+  }, []);
 
   // Live tempo control — applies even during playback
   useEffect(() => {
@@ -110,6 +207,28 @@ export default function MusicXmlViewer({
 
         if (cancelled) return;
 
+        // Stash the canonical XML for the editor to mutate
+        currentXmlRef.current = xmlText;
+        setIsDirty(false);
+
+        // Ask the backend if this stem already has an edited version on disk.
+        // Used to show the "Revert to AI" button. Edited content was already
+        // baked into xmlText by the download endpoint, so this only affects UI.
+        // Only relevant on the "hard" difficulty since edits live there.
+        if (difficulty === "hard") {
+          try {
+            const editsRes = await fetch(`${API_URL}/api/jobs/${jobId}/edits`, {
+              headers: NGROK_HEADERS,
+            });
+            if (editsRes.ok && !cancelled) {
+              const data = (await editsRes.json()) as { edited: string[] };
+              setIsEditedOnDisk(data.edited.includes(stem));
+            }
+          } catch { /* non-fatal — just won't show Revert button */ }
+        } else {
+          setIsEditedOnDisk(false);
+        }
+
         const { OpenSheetMusicDisplay } = await import("opensheetmusicdisplay");
         if (cancelled || !osmdContainerRef.current) return;
 
@@ -129,6 +248,10 @@ export default function MusicXmlViewer({
         await osmd.load(xmlText);
         if (cancelled) return;
         osmd.render();
+
+        // Editor: tag each notehead with its source-document index so click
+        // events can be mapped to MusicXML `<note>` elements.
+        attachNoteIndexAttrs();
 
         // Cursor is part of OSMD; show it parked at the start. It only
         // moves while playback is active.
@@ -193,6 +316,181 @@ export default function MusicXmlViewer({
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [jobId, stem, hasMidi, difficulty]);
+
+  // ── Editor: click + keyboard handlers ───────────────────────────────────
+
+  /** Click anywhere in the score container; if it lands on a notehead, select. */
+  useEffect(() => {
+    const container = osmdContainerRef.current;
+    if (!container) return;
+    const onClick = (e: MouseEvent) => {
+      if (!isEditModeRef.current) return;
+      const target = e.target as Element | null;
+      const notehead = target?.closest?.(".vf-notehead") as SVGElement | null;
+      if (!notehead) {
+        // Click on empty score area → deselect
+        setSelectedNoteIndex(null);
+        setSelectedNoteLabel("");
+        refreshSelectionHighlight(null);
+        return;
+      }
+      const idxStr = notehead.getAttribute("data-note-index");
+      if (idxStr === null) return;
+      const idx = Number(idxStr);
+      setSelectedNoteIndex(idx);
+      setSelectedNoteLabel(computeNoteLabel(currentXmlRef.current, idx));
+      refreshSelectionHighlight(idx);
+    };
+    container.addEventListener("click", onClick);
+    return () => container.removeEventListener("click", onClick);
+  }, []);
+
+  /** Document keydown — only acts when in edit mode with a selection. */
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (!isEditModeRef.current) return;
+      const idx = selectedNoteIndexRef.current;
+      if (idx === null) {
+        if (e.key === "Escape") setIsEditMode(false);
+        return;
+      }
+
+      // Avoid hijacking keys when the user is typing in an input/textarea
+      const tag = (document.activeElement?.tagName ?? "").toLowerCase();
+      if (tag === "input" || tag === "textarea") return;
+
+      let delta = 0;
+      let toRest = false;
+      let close = false;
+      switch (e.key) {
+        case "ArrowUp":
+          delta = e.shiftKey ? 12 : 1;
+          break;
+        case "ArrowDown":
+          delta = e.shiftKey ? -12 : -1;
+          break;
+        case "Delete":
+        case "Backspace":
+          toRest = true;
+          break;
+        case "Escape":
+          close = true;
+          break;
+        default:
+          return;
+      }
+      e.preventDefault();
+
+      if (close) {
+        setSelectedNoteIndex(null);
+        setSelectedNoteLabel("");
+        refreshSelectionHighlight(null);
+        return;
+      }
+
+      try {
+        const newXml = toRest
+          ? convertNoteToRest(currentXmlRef.current, idx)
+          : shiftPitchSemitones(currentXmlRef.current, idx, delta);
+        currentXmlRef.current = newXml;
+        setIsDirty(true);
+        setSelectedNoteLabel(computeNoteLabel(newXml, idx));
+        // Re-render OSMD asynchronously; selection highlight will reapply
+        void reloadFromXml(newXml);
+      } catch (err) {
+        toast.error("Could not edit note", {
+          description: err instanceof Error ? err.message : "Unknown error",
+        });
+      }
+    };
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [reloadFromXml]);
+
+  // ── Editor: save / revert ───────────────────────────────────────────────
+
+  const handleSaveEdits = useCallback(async () => {
+    if (!isDirty || isSaving) return;
+    setIsSaving(true);
+    try {
+      const res = await fetch(`${API_URL}/api/jobs/${jobId}/score/${stem}`, {
+        method: "PUT",
+        headers: {
+          "Content-Type": "application/xml",
+          ...NGROK_HEADERS,
+        },
+        body: currentXmlRef.current,
+      });
+      if (!res.ok) {
+        const errBody = await res.text().catch(() => "");
+        throw new Error(errBody || `HTTP ${res.status}`);
+      }
+      setIsDirty(false);
+      setIsEditedOnDisk(true);
+      toast.success("Edits saved", {
+        description: "All future downloads will use your edited version.",
+      });
+    } catch (err) {
+      toast.error("Could not save edits", {
+        description: err instanceof Error ? err.message : "Unknown error",
+      });
+    } finally {
+      setIsSaving(false);
+    }
+  }, [jobId, stem, isDirty, isSaving]);
+
+  const handleRevertEdits = useCallback(async () => {
+    if (!confirm(
+      "Discard your edits to this stem and revert to the AI-generated " +
+      "version? This cannot be undone.",
+    )) return;
+    setIsSaving(true);
+    try {
+      const res = await fetch(`${API_URL}/api/jobs/${jobId}/score/${stem}/edited`, {
+        method: "DELETE",
+        headers: NGROK_HEADERS,
+      });
+      if (!res.ok) {
+        throw new Error(`HTTP ${res.status}`);
+      }
+      setIsEditedOnDisk(false);
+      setIsDirty(false);
+      setSelectedNoteIndex(null);
+      setSelectedNoteLabel("");
+      // Re-fetch the AI version and re-render
+      const xmlRes = await fetch(
+        downloadUrl(jobId, stem, "musicxml", difficulty),
+        { headers: NGROK_HEADERS },
+      );
+      if (xmlRes.ok) {
+        const xml = await xmlRes.text();
+        currentXmlRef.current = xml;
+        await reloadFromXml(xml);
+      }
+      toast.success("Reverted to AI version");
+    } catch (err) {
+      toast.error("Could not revert", {
+        description: err instanceof Error ? err.message : "Unknown error",
+      });
+    } finally {
+      setIsSaving(false);
+    }
+  }, [jobId, stem, difficulty, reloadFromXml]);
+
+  /** Toggle edit mode on/off. Clears selection when exiting. */
+  const handleToggleEditMode = useCallback(() => {
+    setIsEditMode((prev) => {
+      const next = !prev;
+      if (!next) {
+        setSelectedNoteIndex(null);
+        setSelectedNoteLabel("");
+        refreshSelectionHighlight(null);
+      }
+      // Update cursor style on noteheads
+      requestAnimationFrame(() => attachNoteIndexAttrs());
+      return next;
+    });
+  }, []);
 
   /** Advance OSMD's cursor on every animation frame to match Tone.Transport time. */
   function startCursorSync() {
@@ -391,7 +689,7 @@ export default function MusicXmlViewer({
       />
 
       {/* Action bar — always shown when score loads. Includes PDF/print +
-          (when MIDI is available) playback controls. */}
+          (when MIDI is available) playback controls + editor controls. */}
       {phase === "ready" && (
         <div className="flex flex-col gap-3 border-t border-slate-200 bg-slate-50 px-4 py-3 sm:flex-row sm:items-center sm:flex-wrap sm:gap-4">
           {/* PDF / open full-screen — always available */}
@@ -403,6 +701,74 @@ export default function MusicXmlViewer({
           >
             📄 Save as PDF
           </a>
+
+          {/* Editor — only on the "hard" (canonical) difficulty + non-read-only */}
+          {difficulty === "hard" && !readOnly && (
+            <>
+              <button
+                type="button"
+                onClick={handleToggleEditMode}
+                aria-pressed={isEditMode}
+                className={`flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet-500 focus-visible:ring-offset-1 focus-visible:ring-offset-slate-50 ${
+                  isEditMode
+                    ? "bg-violet-700 text-white hover:bg-violet-600"
+                    : "border border-slate-300 bg-white text-slate-700 hover:bg-slate-50"
+                }`}
+              >
+                {isEditMode ? "✏️ Done editing" : "✏️ Edit notes"}
+              </button>
+              {isEditedOnDisk && !isDirty && (
+                <span className="text-xs font-medium text-violet-700">
+                  ✓ Edited
+                </span>
+              )}
+              {isDirty && (
+                <span className="text-xs font-medium text-amber-700">
+                  • Unsaved changes
+                </span>
+              )}
+              {isDirty && (
+                <button
+                  type="button"
+                  onClick={handleSaveEdits}
+                  disabled={isSaving}
+                  className="flex items-center gap-1.5 rounded-md bg-emerald-700 px-3 py-1.5 text-xs font-semibold text-white hover:bg-emerald-600 disabled:opacity-60 disabled:cursor-not-allowed transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500 focus-visible:ring-offset-1 focus-visible:ring-offset-slate-50"
+                >
+                  {isSaving ? "Saving…" : "💾 Save edits"}
+                </button>
+              )}
+              {(isEditedOnDisk || isDirty) && (
+                <button
+                  type="button"
+                  onClick={handleRevertEdits}
+                  disabled={isSaving}
+                  className="flex items-center gap-1.5 rounded-md border border-red-300 bg-white px-3 py-1.5 text-xs font-medium text-red-700 hover:bg-red-50 disabled:opacity-60 disabled:cursor-not-allowed transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-500 focus-visible:ring-offset-1 focus-visible:ring-offset-slate-50"
+                >
+                  ↺ Revert to AI
+                </button>
+              )}
+            </>
+          )}
+
+          {/* Selected-note status row (only in edit mode + non-read-only) */}
+          {isEditMode && !readOnly && (
+            <div className="basis-full -mb-1 -mt-1 flex items-center gap-2 rounded-md border border-violet-300 bg-violet-50 px-3 py-1.5 text-xs text-violet-900">
+              {selectedNoteIndex === null ? (
+                <span>
+                  <strong>Click a note</strong> on the score to select it. Then use
+                  ↑/↓ to shift pitch, Shift+↑/↓ to shift an octave, Delete to make
+                  it a rest, Esc to deselect.
+                </span>
+              ) : (
+                <span>
+                  Selected: <strong>{selectedNoteLabel}</strong>
+                  <span className="text-violet-700/70 ml-2">
+                    ↑/↓ pitch · Shift+↑/↓ octave · Del → rest · Esc to close
+                  </span>
+                </span>
+              )}
+            </div>
+          )}
 
           {hasMidi && midiReady && (
           <>

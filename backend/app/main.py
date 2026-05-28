@@ -19,7 +19,7 @@ from enum import Enum
 from pathlib import Path
 from typing import Any
 
-from fastapi import FastAPI, File, Form, HTTPException, UploadFile
+from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
@@ -357,9 +357,20 @@ def download_file(job_id: str, stem: str, fmt: str, difficulty: str = "hard") ->
         media_type = "application/pdf"
         filename = f"{stem}{suffix}.pdf"
     elif fmt == "musicxml":
-        path = output_dir / "scores" / f"{stem}{suffix}.musicxml"
+        # For the "hard" (default) difficulty AND musicxml only, prefer the
+        # user-edited file when it exists. This means once a user edits a
+        # score, all downloads + the inline viewer pick up the edited version
+        # without any extra client-side plumbing. Easy/medium variants stay
+        # AI-generated since editing happens at the hard level.
+        canonical = output_dir / "scores" / f"{stem}{suffix}.musicxml"
+        edited = output_dir / "scores" / f"{stem}-edited.musicxml"
+        if difficulty == "hard" and edited.exists():
+            path = edited
+            filename = f"{stem}-edited.musicxml"
+        else:
+            path = canonical
+            filename = f"{stem}{suffix}.musicxml"
         media_type = "application/xml"
-        filename = f"{stem}{suffix}.musicxml"
     elif fmt == "mid":
         # MIDI is not regenerated per difficulty — same file regardless
         path = output_dir / "quantized" / f"{stem}.mid"
@@ -372,3 +383,112 @@ def download_file(job_id: str, stem: str, fmt: str, difficulty: str = "hard") ->
         raise HTTPException(status_code=404, detail="File not yet available")
 
     return FileResponse(path=str(path), media_type=media_type, filename=filename)
+
+
+# ── Score editing endpoints ───────────────────────────────────────────────────
+
+# Sanity caps on uploaded MusicXML — keeps the endpoint from being a vector
+# for filling up disk. Real MusicXML for a 3-min stem is ~30-80 KB; 5 MB is
+# generous headroom even for highly polyphonic content.
+_MAX_MUSICXML_BYTES = 5 * 1024 * 1024
+# Whitelist stem names to prevent path traversal
+_STEM_RE = "vocals|bass|other|piano|guitar|drums"
+
+
+def _validate_stem(stem: str) -> None:
+    import re
+    if not re.fullmatch(_STEM_RE, stem):
+        raise HTTPException(status_code=400, detail=f"Unknown stem '{stem}'")
+
+
+@app.put("/api/jobs/{job_id}/score/{stem}")
+async def save_edited_score(job_id: str, stem: str, request: Request) -> dict[str, Any]:
+    """Upload a user-edited MusicXML for a stem.
+
+    The body must be a valid MusicXML document (best-effort validated by a
+    simple parse). The file lands at
+    ``{job_dir}/output/scores/{stem}-edited.musicxml`` and from then on the
+    download endpoint serves it instead of the AI-generated version.
+
+    Idempotent: re-PUTing overwrites the previous edit.
+    """
+    _get_job(job_id)
+    _validate_stem(stem)
+
+    body = await request.body()
+    if not body:
+        raise HTTPException(status_code=400, detail="Body is empty")
+    if len(body) > _MAX_MUSICXML_BYTES:
+        raise HTTPException(
+            status_code=413,
+            detail=f"MusicXML too large (max {_MAX_MUSICXML_BYTES // 1024} KB)",
+        )
+
+    # Light validation: must parse as XML and contain a <score-partwise> or
+    # <score-timewise> root. Reject anything that doesn't look like MusicXML
+    # so we never write garbage that breaks downstream readers.
+    try:
+        from xml.etree import ElementTree as ET
+        root = ET.fromstring(body)
+    except ET.ParseError as exc:
+        raise HTTPException(status_code=400, detail=f"Invalid XML: {exc}")
+
+    if root.tag not in ("score-partwise", "score-timewise"):
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"Root element '{root.tag}' is not MusicXML "
+                f"(expected score-partwise or score-timewise)"
+            ),
+        )
+
+    scores_dir = JOBS_DIR / job_id / "output" / "scores"
+    scores_dir.mkdir(parents=True, exist_ok=True)
+    target = scores_dir / f"{stem}-edited.musicxml"
+    target.write_bytes(body)
+
+    logger.info("Saved edited MusicXML for job=%s stem=%s (%d bytes)", job_id, stem, len(body))
+    return {
+        "success": True,
+        "stem": stem,
+        "bytes": len(body),
+        "edited": True,
+    }
+
+
+@app.get("/api/jobs/{job_id}/edits")
+def list_edited_stems(job_id: str) -> dict[str, list[str]]:
+    """List which stems have a user-edited MusicXML file.
+
+    Returns ``{ "edited": ["vocals", "bass"] }``. Used by the frontend to
+    decide whether to show the "Revert to AI version" button per stem.
+    """
+    _get_job(job_id)
+
+    scores_dir = JOBS_DIR / job_id / "output" / "scores"
+    if not scores_dir.exists():
+        return {"edited": []}
+
+    edited = [
+        p.name.removesuffix("-edited.musicxml")
+        for p in scores_dir.glob("*-edited.musicxml")
+    ]
+    return {"edited": sorted(edited)}
+
+
+@app.delete("/api/jobs/{job_id}/score/{stem}/edited")
+def revert_edited_score(job_id: str, stem: str) -> dict[str, Any]:
+    """Delete a user-edited MusicXML, reverting to the AI-generated version.
+
+    Returns ``{ "reverted": false }`` if nothing was edited (no-op, not an error).
+    """
+    _get_job(job_id)
+    _validate_stem(stem)
+
+    edited = JOBS_DIR / job_id / "output" / "scores" / f"{stem}-edited.musicxml"
+    if not edited.exists():
+        return {"success": True, "stem": stem, "reverted": False}
+
+    edited.unlink()
+    logger.info("Reverted edited MusicXML for job=%s stem=%s", job_id, stem)
+    return {"success": True, "stem": stem, "reverted": True}

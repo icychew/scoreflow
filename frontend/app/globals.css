@@ -26,6 +26,24 @@ body {
 .abcjs-highlight {
   fill: #7c3aed !important;     /* violet-600 */
 }
+
+/*
+ * Editor: selected notehead in MusicXmlViewer. Applied to .vf-notehead
+ * elements rendered by OSMD/VexFlow when the user clicks one in edit mode.
+ * Violet outline ring + bold fill so it's distinguishable on the white
+ * score background.
+ */
+.notara-note-selected {
+  fill: #7c3aed !important;       /* violet-600 */
+  stroke: #5b21b6 !important;     /* violet-700 */
+  stroke-width: 2 !important;
+}
+.notara-note-selected path,
+.notara-note-selected rect,
+.notara-note-selected ellipse {
+  fill: #7c3aed !important;
+  stroke: #5b21b6 !important;
+}
 .abcjs-highlight path,
 .abcjs-highlight rect,
 .abcjs-highlight ellipse,

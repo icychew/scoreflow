@@ -39,6 +39,7 @@ export default function SharedScoreList({ jobId, scores, token }: SharedScoreLis
             stem={stem}
             hasMidi={scores[stem].includes("mid")}
             shareToken={token}
+            readOnly
           />
         </div>
       ))}
