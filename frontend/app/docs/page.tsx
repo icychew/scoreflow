@@ -104,6 +104,20 @@ curl -H "Authorization: Bearer $NOTARA_KEY" \\
   "${baseUrl}/api/v1/jobs/abc123/download/vocals/pdf?difficulty=medium"`,
     responseExample: "(binary file body)",
   },
+  {
+    method: "GET",
+    path: "/api/v1/jobs/{id}/audio",
+    summary:
+      "Stream the original uploaded audio for a job. Supports HTTP Range requests, so it works as the src of an HTML <audio> element including seek.",
+    example: `# Download the original recording
+curl -H "Authorization: Bearer $NOTARA_KEY" \\
+  -o original.mp3 \\
+  "${baseUrl}/api/v1/jobs/abc123/audio"
+
+# Or use it directly in a browser
+# <audio src="${baseUrl}/api/v1/jobs/abc123/audio?key=$NOTARA_KEY" controls />`,
+    responseExample: "(audio/mpeg, audio/wav, audio/flac, audio/mp4, or audio/ogg)",
+  },
 ];
 
 export default function ApiDocsPage() {

@@ -385,6 +385,50 @@ def download_file(job_id: str, stem: str, fmt: str, difficulty: str = "hard") ->
     return FileResponse(path=str(path), media_type=media_type, filename=filename)
 
 
+# ── Original-audio playback ──────────────────────────────────────────────────
+
+_AUDIO_MEDIA_TYPES: dict[str, str] = {
+    ".mp3":  "audio/mpeg",
+    ".wav":  "audio/wav",
+    ".flac": "audio/flac",
+    ".m4a":  "audio/mp4",
+    ".ogg":  "audio/ogg",
+}
+
+
+@app.get("/api/jobs/{job_id}/audio")
+def download_original_audio(job_id: str) -> FileResponse:
+    """Stream the user's original uploaded audio for the job.
+
+    The upload endpoint stores exactly one ``input.<ext>`` file per job, so we
+    glob for it rather than tracking the extension. Returns the file with the
+    matching audio MIME type so the browser's ``<audio>`` element can stream
+    it (FastAPI's FileResponse honours Range requests, which the audio element
+    uses for seek).
+
+    Used by the inline viewer's "Original" playback mode to play the recording
+    while the OSMD cursor follows along on the score — closing the
+    verification loop after editable-scores.
+    """
+    _get_job(job_id)
+
+    job_dir = JOBS_DIR / job_id
+    # The upload writes exactly one input.* per job. Sort so the result is
+    # deterministic in the (defensive) case where two extensions snuck in.
+    candidates = sorted(p for p in job_dir.glob("input.*") if p.is_file())
+    if not candidates:
+        raise HTTPException(status_code=404, detail="Original audio not available for this job")
+
+    path = candidates[0]
+    media_type = _AUDIO_MEDIA_TYPES.get(path.suffix.lower(), "application/octet-stream")
+    # inline so the browser plays it rather than triggering a download
+    return FileResponse(
+        path=str(path),
+        media_type=media_type,
+        headers={"Content-Disposition": f'inline; filename="{path.name}"'},
+    )
+
+
 # ── Score editing endpoints ───────────────────────────────────────────────────
 
 # Sanity caps on uploaded MusicXML — keeps the endpoint from being a vector

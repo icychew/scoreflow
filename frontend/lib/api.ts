@@ -69,3 +69,12 @@ export function downloadUrl(
   // "hard" preserves the legacy URL — no query string appended
   return difficulty === "hard" ? base : `${base}?difficulty=${difficulty}`;
 }
+
+/**
+ * URL of the user's original uploaded audio for a job. Streams from the
+ * backend with Range-request support, suitable as the `src` of an `<audio>`
+ * element. Used by MusicXmlViewer's "Original" playback mode.
+ */
+export function originalAudioUrl(jobId: string): string {
+  return `${API_URL}/api/jobs/${jobId}/audio`;
+}

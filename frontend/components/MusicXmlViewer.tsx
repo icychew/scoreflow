@@ -2,8 +2,10 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
-import { downloadUrl, NGROK_HEADERS, type Difficulty } from "@/lib/api";
+import { downloadUrl, NGROK_HEADERS, originalAudioUrl, type Difficulty } from "@/lib/api";
 import { shiftPitchSemitones, convertNoteToRest } from "@/lib/scoreEditor";
+
+type PlaybackMode = "synth" | "original";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
@@ -85,6 +87,11 @@ export default function MusicXmlViewer({
   // Cursor sync: rAF loop that advances OSMD's cursor in time with Tone playback
   const rafIdRef = useRef<number | null>(null);
   const isPlayingRef = useRef(false);
+  // Original-audio mode: <audio> element drives playback + cursor
+  const audioElementRef = useRef<HTMLAudioElement | null>(null);
+  const playbackModeRef = useRef<PlaybackMode>("synth");
+  // Live tempo readable from the rAF closure (which captures values at start)
+  const tempoBpmRef = useRef<number>(120);
   // Editor state — kept in refs alongside React state because the document
   // keydown handler is registered once and needs to read the latest values.
   const currentXmlRef = useRef<string>("");
@@ -107,6 +114,11 @@ export default function MusicXmlViewer({
   const [isDirty, setIsDirty] = useState(false);
   const [isEditedOnDisk, setIsEditedOnDisk] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
+  // Playback source: "synth" = Tone.js MIDI playback, "original" = raw audio
+  const [playbackMode, setPlaybackMode] = useState<PlaybackMode>("synth");
+  // Whether the backend has the original audio for this job. Falsy → Original
+  // pill is disabled with an explanatory tooltip.
+  const [audioAvailable, setAudioAvailable] = useState(false);
 
   useEffect(() => {
     transposeRef.current = transpose;
@@ -119,6 +131,48 @@ export default function MusicXmlViewer({
   useEffect(() => {
     selectedNoteIndexRef.current = selectedNoteIndex;
   }, [selectedNoteIndex]);
+
+  useEffect(() => {
+    playbackModeRef.current = playbackMode;
+  }, [playbackMode]);
+
+  // Probe whether the backend has the original audio for this job. HEAD is
+  // cheap; gates the Original toggle without downloading the file.
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch(originalAudioUrl(jobId), {
+          method: "HEAD",
+          headers: NGROK_HEADERS,
+        });
+        if (!cancelled) setAudioAvailable(res.ok);
+      } catch {
+        if (!cancelled) setAudioAvailable(false);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [jobId]);
+
+  /**
+   * Time-source closure for cursor sync. Returns the current playback
+   * position in seconds — reads from `<audio>.currentTime` in original mode,
+   * `Tone.getTransport().seconds` in synth mode. Returns 0 when nothing is
+   * playing or refs aren't initialised yet.
+   */
+  function getCurrentSeconds(): number {
+    if (playbackModeRef.current === "original") {
+      const el = audioElementRef.current;
+      return el ? el.currentTime : 0;
+    }
+    const tone = toneModuleRef.current;
+    if (!tone) return 0;
+    try {
+      return tone.getTransport().seconds;
+    } catch {
+      return 0;
+    }
+  }
 
   /**
    * After OSMD renders, walk the SVG and attach `data-note-index` to each
@@ -185,13 +239,21 @@ export default function MusicXmlViewer({
     }
   }, []);
 
-  // Live tempo control — applies even during playback
+  // Live tempo control — applies even during playback. Mode-aware:
+  //   synth    → Tone.Transport BPM (time-stretches the synth)
+  //   original → audio.playbackRate (time-stretches AND pitch-shifts; UI
+  //              advertises this trade-off when in original mode)
   useEffect(() => {
-    if (!toneModuleRef.current) return;
-    try {
-      toneModuleRef.current.getTransport().bpm.value = tempoBpm;
-    } catch { /* ignore */ }
-  }, [tempoBpm]);
+    tempoBpmRef.current = tempoBpm;
+    if (playbackMode === "original") {
+      const el = audioElementRef.current;
+      if (el) el.playbackRate = tempoBpm / DEFAULT_BPM;
+    } else if (toneModuleRef.current) {
+      try {
+        toneModuleRef.current.getTransport().bpm.value = tempoBpm;
+      } catch { /* ignore */ }
+    }
+  }, [tempoBpm, playbackMode]);
 
   // Load MusicXML (and optionally MIDI) on mount
   useEffect(() => {
@@ -312,6 +374,12 @@ export default function MusicXmlViewer({
       if (rafIdRef.current !== null) {
         cancelAnimationFrame(rafIdRef.current);
         rafIdRef.current = null;
+      }
+      // Tear down the original-audio element (releases the file handle)
+      if (audioElementRef.current) {
+        try { audioElementRef.current.pause(); } catch { /* ignore */ }
+        audioElementRef.current.src = "";
+        audioElementRef.current = null;
       }
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -495,16 +563,18 @@ export default function MusicXmlViewer({
   /** Advance OSMD's cursor on every animation frame to match Tone.Transport time. */
   function startCursorSync() {
     const osmd = osmdRef.current;
-    const tone = toneModuleRef.current;
-    if (!osmd || !tone) return;
+    if (!osmd) return;
     isPlayingRef.current = true;
     try { osmd.cursor.show(); osmd.cursor.reset(); } catch { /* ignore */ }
 
     const tick = () => {
       if (!isPlayingRef.current) return;
       try {
-        const seconds: number = tone.getTransport().seconds;
-        const bpm: number = tone.getTransport().bpm.value;
+        // Time source comes from the active playback mode (synth → Tone,
+        // original → <audio>). getCurrentSeconds returns 0 if neither is
+        // ready, which leaves the cursor parked — safe.
+        const seconds = getCurrentSeconds();
+        const bpm = tempoBpmRef.current;
         // Quarter-note position from elapsed time
         const beat = (seconds * bpm) / 60;
         const iter = osmd.cursor.iterator;
@@ -544,7 +614,46 @@ export default function MusicXmlViewer({
     }
   }
 
+  /** Get or create the singleton <audio> element used in Original mode. */
+  function ensureAudioElement(): HTMLAudioElement {
+    if (audioElementRef.current) return audioElementRef.current;
+    const el = new Audio();
+    el.src = originalAudioUrl(jobId);
+    el.preload = "auto";
+    // When the audio finishes naturally, also reset cursor + state
+    el.addEventListener("ended", () => {
+      stopCursorSync(true);
+      setIsPlaying(false);
+    });
+    audioElementRef.current = el;
+    return el;
+  }
+
+  /** Play the user's original uploaded audio. Drives cursor via audio.currentTime. */
+  const handlePlayOriginal = async () => {
+    clearPlayTimer();
+    setPlayError(null);
+    try {
+      // Stop any synth playback so the two time sources don't fight
+      if (toneModuleRef.current) {
+        try { toneModuleRef.current.getTransport().stop(); } catch { /* ignore */ }
+        try { toneModuleRef.current.getTransport().cancel(); } catch { /* ignore */ }
+      }
+
+      const el = ensureAudioElement();
+      el.playbackRate = tempoBpm / DEFAULT_BPM;
+      await el.play();
+      setIsPlaying(true);
+      startCursorSync();
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      setPlayError(msg);
+      setIsPlaying(false);
+    }
+  };
+
   const handlePlay = async () => {
+    if (playbackMode === "original") return handlePlayOriginal();
     if (!midiBufferRef.current) return;
     clearPlayTimer();
     setPlayError(null);
@@ -628,27 +737,46 @@ export default function MusicXmlViewer({
   const handlePause = async () => {
     clearPlayTimer();
     stopCursorSync(false);
-    try {
-      const Tone = await loadTone();
-      Tone.getTransport().pause();
-    } catch { /* ignore */ }
+    if (playbackMode === "original") {
+      try { audioElementRef.current?.pause(); } catch { /* ignore */ }
+    } else {
+      try {
+        const Tone = await loadTone();
+        Tone.getTransport().pause();
+      } catch { /* ignore */ }
+    }
     setIsPlaying(false);
   };
 
   const handleStop = async () => {
     clearPlayTimer();
     stopCursorSync(true);
-    try {
-      const Tone = await loadTone();
-      Tone.getTransport().stop();
-      Tone.getTransport().cancel();
-    } catch { /* ignore */ }
-    try { synthRef.current?.dispose(); } catch { /* ignore */ }
-    synthRef.current = null;
-    try { partRef.current?.dispose(); } catch { /* ignore */ }
-    partRef.current = null;
+    if (playbackMode === "original") {
+      const el = audioElementRef.current;
+      if (el) {
+        try { el.pause(); el.currentTime = 0; } catch { /* ignore */ }
+      }
+    } else {
+      try {
+        const Tone = await loadTone();
+        Tone.getTransport().stop();
+        Tone.getTransport().cancel();
+      } catch { /* ignore */ }
+      try { synthRef.current?.dispose(); } catch { /* ignore */ }
+      synthRef.current = null;
+      try { partRef.current?.dispose(); } catch { /* ignore */ }
+      partRef.current = null;
+    }
     setIsPlaying(false);
   };
+
+  /** Switch between Synth and Original. Stops playback first to avoid
+      two time sources advancing the cursor simultaneously. */
+  const handleSetPlaybackMode = useCallback(async (mode: PlaybackMode) => {
+    if (mode === playbackMode) return;
+    if (isPlaying) await handleStop();
+    setPlaybackMode(mode);
+  }, [playbackMode, isPlaying]);
 
   // Stop playback if transpose changes mid-song; user must press Play again
   useEffect(() => {
@@ -772,6 +900,44 @@ export default function MusicXmlViewer({
 
           {hasMidi && midiReady && (
           <>
+          {/* Source: Synth ↔ Original. Sits in front of the transport so
+              users see it before pressing Play. */}
+          <div className="flex items-center gap-2">
+            <span className="text-xs font-medium text-slate-500">Source:</span>
+            <div className="flex rounded-md border border-slate-300 bg-white p-0.5 gap-0.5">
+              <button
+                type="button"
+                onClick={() => handleSetPlaybackMode("synth")}
+                aria-pressed={playbackMode === "synth"}
+                className={`rounded px-2.5 py-1 text-xs font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet-500 ${
+                  playbackMode === "synth"
+                    ? "bg-violet-700 text-white"
+                    : "text-slate-600 hover:text-slate-800"
+                }`}
+              >
+                Synth
+              </button>
+              <button
+                type="button"
+                onClick={() => handleSetPlaybackMode("original")}
+                aria-pressed={playbackMode === "original"}
+                disabled={!audioAvailable}
+                title={
+                  audioAvailable
+                    ? "Play the original recording with the cursor following along"
+                    : "Original audio not available for this job (uploaded before audio serving was added)"
+                }
+                className={`rounded px-2.5 py-1 text-xs font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet-500 disabled:opacity-40 disabled:cursor-not-allowed ${
+                  playbackMode === "original"
+                    ? "bg-violet-700 text-white"
+                    : "text-slate-600 hover:text-slate-800"
+                }`}
+              >
+                Original 🎙
+              </button>
+            </div>
+          </div>
+
           {/* Transport */}
           <div className="flex items-center gap-2">
             <span className="text-xs font-medium text-slate-500 mr-1">Playback:</span>
@@ -803,7 +969,9 @@ export default function MusicXmlViewer({
 
           {/* Tempo */}
           <label className="flex items-center gap-2 min-w-[200px] flex-1">
-            <span className="text-xs font-medium text-slate-500">Tempo</span>
+            <span className="text-xs font-medium text-slate-500">
+              {playbackMode === "original" ? "Tempo (pitch shifts)" : "Tempo"}
+            </span>
             <input
               type="range"
               min={MIN_BPM}
@@ -822,13 +990,20 @@ export default function MusicXmlViewer({
             </span>
           </label>
 
-          {/* Transpose */}
-          <div className="flex items-center gap-2">
+          {/* Transpose — disabled in original mode (can't transpose recorded audio) */}
+          <div
+            className="flex items-center gap-2"
+            title={
+              playbackMode === "original"
+                ? "Transpose only works with the Synth source — recorded audio can't be transposed"
+                : undefined
+            }
+          >
             <span className="text-xs font-medium text-slate-500">Key</span>
             <button
               type="button"
               onClick={() => setTranspose((t) => Math.max(MIN_TRANSPOSE, t - 1))}
-              disabled={transpose <= MIN_TRANSPOSE}
+              disabled={transpose <= MIN_TRANSPOSE || playbackMode === "original"}
               aria-label="Transpose down one semitone"
               className="rounded-md border border-slate-300 bg-white w-7 h-7 text-sm font-medium text-slate-700 hover:bg-slate-100 transition-colors disabled:opacity-40 disabled:cursor-not-allowed focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet-500"
             >
@@ -840,13 +1015,13 @@ export default function MusicXmlViewer({
             <button
               type="button"
               onClick={() => setTranspose((t) => Math.min(MAX_TRANSPOSE, t + 1))}
-              disabled={transpose >= MAX_TRANSPOSE}
+              disabled={transpose >= MAX_TRANSPOSE || playbackMode === "original"}
               aria-label="Transpose up one semitone"
               className="rounded-md border border-slate-300 bg-white w-7 h-7 text-sm font-medium text-slate-700 hover:bg-slate-100 transition-colors disabled:opacity-40 disabled:cursor-not-allowed focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet-500"
             >
               +
             </button>
-            {transpose !== 0 && (
+            {transpose !== 0 && playbackMode !== "original" && (
               <button
                 type="button"
                 onClick={() => setTranspose(0)}
