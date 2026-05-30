@@ -4,6 +4,7 @@ import { useState } from "react";
 import dynamic from "next/dynamic";
 import { downloadUrl, type Difficulty } from "@/lib/api";
 import ShareModal from "@/components/ShareModal";
+import UnifiedPlayer from "@/components/UnifiedPlayer";
 
 const MusicXmlViewer = dynamic(() => import("@/components/MusicXmlViewer"), {
   ssr: false,
@@ -147,7 +148,11 @@ export default function ResultsPanel({
       </div>
       <ShareModal jobId={jobId} open={shareOpen} onClose={() => setShareOpen(false)} />
 
-      <div className="space-y-3">
+      {/* Unified per-stem mix player. The MixTimeContext provided here is
+          consumed by any MusicXmlViewer set to "Mix" source, so their cursors
+          all advance against the same shared timeline. */}
+      <UnifiedPlayer jobId={jobId} stems={stems}>
+      <div className="space-y-3 mt-5">
         {stems.map((stem) => {
           const availableDifficulties: Difficulty[] = (
             scoreDifficulties?.[stem] ?? ["hard"]
@@ -244,6 +249,7 @@ export default function ResultsPanel({
           );
         })}
       </div>
+      </UnifiedPlayer>
     </div>
   );
 }

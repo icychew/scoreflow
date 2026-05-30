@@ -396,6 +396,32 @@ _AUDIO_MEDIA_TYPES: dict[str, str] = {
 }
 
 
+@app.get("/api/jobs/{job_id}/stems/{stem}/audio")
+def download_stem_audio(job_id: str, stem: str) -> FileResponse:
+    """Stream the Demucs-separated audio for a single stem.
+
+    Demucs writes each stem as ``output/stems/{stem}.wav`` (mono or stereo
+    PCM_16). This endpoint serves that file so the UnifiedPlayer can load
+    all stems and play them in sync with per-stem mute/solo/volume.
+
+    Used by the unified DAW-style player in ResultsPanel.
+    """
+    _get_job(job_id)
+    _validate_stem(stem)
+
+    path = JOBS_DIR / job_id / "output" / "stems" / f"{stem}.wav"
+    if not path.exists():
+        raise HTTPException(
+            status_code=404,
+            detail=f"Stem audio for '{stem}' not available for this job",
+        )
+    return FileResponse(
+        path=str(path),
+        media_type="audio/wav",
+        headers={"Content-Disposition": f'inline; filename="{stem}.wav"'},
+    )
+
+
 @app.get("/api/jobs/{job_id}/audio")
 def download_original_audio(job_id: str) -> FileResponse:
     """Stream the user's original uploaded audio for the job.

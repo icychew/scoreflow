@@ -4,8 +4,9 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import { downloadUrl, NGROK_HEADERS, originalAudioUrl, type Difficulty } from "@/lib/api";
 import { shiftPitchSemitones, convertNoteToRest } from "@/lib/scoreEditor";
+import { useMixTimeSource } from "@/components/UnifiedPlayer";
 
-type PlaybackMode = "synth" | "original";
+type PlaybackMode = "synth" | "original" | "mix";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
@@ -114,11 +115,16 @@ export default function MusicXmlViewer({
   const [isDirty, setIsDirty] = useState(false);
   const [isEditedOnDisk, setIsEditedOnDisk] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
-  // Playback source: "synth" = Tone.js MIDI playback, "original" = raw audio
+  // Playback source: "synth" = Tone.js MIDI playback, "original" = raw audio,
+  // "mix" = subscribe to the parent UnifiedPlayer's time source (cursor follows
+  // the multi-stem mix being played in ResultsPanel above).
   const [playbackMode, setPlaybackMode] = useState<PlaybackMode>("synth");
   // Whether the backend has the original audio for this job. Falsy → Original
   // pill is disabled with an explanatory tooltip.
   const [audioAvailable, setAudioAvailable] = useState(false);
+  // Pulled from React context; non-null when this viewer is nested inside a
+  // UnifiedPlayer. When null, the Mix pill is hidden entirely.
+  const mixTimeSource = useMixTimeSource();
 
   useEffect(() => {
     transposeRef.current = transpose;
@@ -135,6 +141,56 @@ export default function MusicXmlViewer({
   useEffect(() => {
     playbackModeRef.current = playbackMode;
   }, [playbackMode]);
+
+  // In "mix" mode the cursor sync runs continuously, following the
+  // UnifiedPlayer's clock without needing a local Play press. Resets to bar 1
+  // when the UnifiedPlayer is stopped (time=0 and not playing).
+  useEffect(() => {
+    if (playbackMode !== "mix" || !mixTimeSource) return;
+    isPlayingRef.current = true; // unlocks the rAF tick loop
+    try { osmdRef.current?.cursor?.show(); } catch { /* ignore */ }
+
+    let lastIsPlaying = false;
+    const tick = () => {
+      if (playbackModeRef.current !== "mix") return;
+      try {
+        const seconds = mixTimeSource.getTime();
+        const playing = mixTimeSource.isPlaying();
+
+        // When the mix-player transitions from "playing" → "stopped" AND time
+        // is 0, reset the cursor so the next Play starts from the top.
+        if (lastIsPlaying && !playing && seconds < 0.05) {
+          try { osmdRef.current?.cursor?.reset(); } catch { /* ignore */ }
+        }
+        lastIsPlaying = playing;
+
+        const bpm = tempoBpmRef.current;
+        const beat = (seconds * bpm) / 60;
+        const osmd = osmdRef.current;
+        const iter = osmd?.cursor?.iterator;
+        let safety = 0;
+        while (
+          iter &&
+          !iter.endReached &&
+          iter.currentTimeStamp &&
+          iter.currentTimeStamp.RealValue * 4 < beat &&
+          safety++ < 512
+        ) {
+          osmd.cursor.next();
+        }
+      } catch { /* ignore */ }
+      rafIdRef.current = requestAnimationFrame(tick);
+    };
+    rafIdRef.current = requestAnimationFrame(tick);
+
+    return () => {
+      if (rafIdRef.current !== null) {
+        cancelAnimationFrame(rafIdRef.current);
+        rafIdRef.current = null;
+      }
+      isPlayingRef.current = false;
+    };
+  }, [playbackMode, mixTimeSource]);
 
   // Probe whether the backend has the original audio for this job. HEAD is
   // cheap; gates the Original toggle without downloading the file.
@@ -161,6 +217,10 @@ export default function MusicXmlViewer({
    * playing or refs aren't initialised yet.
    */
   function getCurrentSeconds(): number {
+    if (playbackModeRef.current === "mix") {
+      // Subscribe to the parent UnifiedPlayer's clock
+      return mixTimeSource?.getTime() ?? 0;
+    }
     if (playbackModeRef.current === "original") {
       const el = audioElementRef.current;
       return el ? el.currentTime : 0;
@@ -935,37 +995,60 @@ export default function MusicXmlViewer({
               >
                 Original 🎙
               </button>
+              {/* Mix pill — only visible when a UnifiedPlayer is mounted above */}
+              {mixTimeSource && (
+                <button
+                  type="button"
+                  onClick={() => handleSetPlaybackMode("mix")}
+                  aria-pressed={playbackMode === "mix"}
+                  title="Follow the Mix Player above (cursor syncs with the multi-stem mix)"
+                  className={`rounded px-2.5 py-1 text-xs font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet-500 ${
+                    playbackMode === "mix"
+                      ? "bg-violet-700 text-white"
+                      : "text-slate-600 hover:text-slate-800"
+                  }`}
+                >
+                  Mix 🎚
+                </button>
+              )}
             </div>
+            {playbackMode === "mix" && (
+              <span className="text-xs text-slate-500 italic">
+                Press ▶ on the Mix Player above
+              </span>
+            )}
           </div>
 
-          {/* Transport */}
-          <div className="flex items-center gap-2">
-            <span className="text-xs font-medium text-slate-500 mr-1">Playback:</span>
-            {isPlaying ? (
+          {/* Transport — hidden in mix mode (the UnifiedPlayer drives it) */}
+          {playbackMode !== "mix" && (
+            <div className="flex items-center gap-2">
+              <span className="text-xs font-medium text-slate-500 mr-1">Playback:</span>
+              {isPlaying ? (
+                <button
+                  type="button"
+                  onClick={handlePause}
+                  className="flex items-center gap-1.5 rounded-md bg-violet-700 px-3 py-1.5 text-xs font-semibold text-white hover:bg-violet-600 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet-500 focus-visible:ring-offset-1 focus-visible:ring-offset-slate-50"
+                >
+                  <span aria-hidden="true">⏸</span> Pause
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  onClick={handlePlay}
+                  className="flex items-center gap-1.5 rounded-md bg-violet-700 px-3 py-1.5 text-xs font-semibold text-white hover:bg-violet-600 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet-500 focus-visible:ring-offset-1 focus-visible:ring-offset-slate-50"
+                >
+                  <span aria-hidden="true">▶</span> Play
+                </button>
+              )}
               <button
                 type="button"
-                onClick={handlePause}
-                className="flex items-center gap-1.5 rounded-md bg-violet-700 px-3 py-1.5 text-xs font-semibold text-white hover:bg-violet-600 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet-500 focus-visible:ring-offset-1 focus-visible:ring-offset-slate-50"
+                onClick={handleStop}
+                className="flex items-center gap-1.5 rounded-md border border-slate-300 bg-white px-3 py-1.5 text-xs font-medium text-slate-600 hover:bg-slate-50 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet-500 focus-visible:ring-offset-1 focus-visible:ring-offset-slate-50"
               >
-                <span aria-hidden="true">⏸</span> Pause
+                <span aria-hidden="true">■</span> Stop
               </button>
-            ) : (
-              <button
-                type="button"
-                onClick={handlePlay}
-                className="flex items-center gap-1.5 rounded-md bg-violet-700 px-3 py-1.5 text-xs font-semibold text-white hover:bg-violet-600 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet-500 focus-visible:ring-offset-1 focus-visible:ring-offset-slate-50"
-              >
-                <span aria-hidden="true">▶</span> Play
-              </button>
-            )}
-            <button
-              type="button"
-              onClick={handleStop}
-              className="flex items-center gap-1.5 rounded-md border border-slate-300 bg-white px-3 py-1.5 text-xs font-medium text-slate-600 hover:bg-slate-50 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet-500 focus-visible:ring-offset-1 focus-visible:ring-offset-slate-50"
-            >
-              <span aria-hidden="true">■</span> Stop
-            </button>
-          </div>
+            </div>
+          )}
 
           {/* Tempo */}
           <label className="flex items-center gap-2 min-w-[200px] flex-1">
@@ -1003,7 +1086,7 @@ export default function MusicXmlViewer({
             <button
               type="button"
               onClick={() => setTranspose((t) => Math.max(MIN_TRANSPOSE, t - 1))}
-              disabled={transpose <= MIN_TRANSPOSE || playbackMode === "original"}
+              disabled={transpose <= MIN_TRANSPOSE || playbackMode === "original" || playbackMode === "mix"}
               aria-label="Transpose down one semitone"
               className="rounded-md border border-slate-300 bg-white w-7 h-7 text-sm font-medium text-slate-700 hover:bg-slate-100 transition-colors disabled:opacity-40 disabled:cursor-not-allowed focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet-500"
             >
@@ -1015,7 +1098,7 @@ export default function MusicXmlViewer({
             <button
               type="button"
               onClick={() => setTranspose((t) => Math.min(MAX_TRANSPOSE, t + 1))}
-              disabled={transpose >= MAX_TRANSPOSE || playbackMode === "original"}
+              disabled={transpose >= MAX_TRANSPOSE || playbackMode === "original" || playbackMode === "mix"}
               aria-label="Transpose up one semitone"
               className="rounded-md border border-slate-300 bg-white w-7 h-7 text-sm font-medium text-slate-700 hover:bg-slate-100 transition-colors disabled:opacity-40 disabled:cursor-not-allowed focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet-500"
             >
