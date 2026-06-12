@@ -51,6 +51,28 @@ export async function uploadAudio(
   return res.json();
 }
 
+/** Start a transcription job from a YouTube link (backend downloads the audio). */
+export async function transcribeYouTube(
+  url: string,
+  quality: Quality = "standard",
+  refine: boolean = true,
+): Promise<{ job_id: string; status: string; title?: string | null }> {
+  const form = new FormData();
+  form.append("url", url);
+  form.append("quality", quality);
+  form.append("refine", refine ? "true" : "false");
+  const res = await fetch(`${API_URL}/api/jobs/youtube`, {
+    method: "POST",
+    body: form,
+    headers: NGROK_HEADERS,
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ detail: res.statusText }));
+    throw new Error(err.detail ?? "YouTube transcription failed");
+  }
+  return res.json();
+}
+
 export async function pollJob(jobId: string): Promise<JobState> {
   const res = await fetch(`${API_URL}/api/jobs/${jobId}`, {
     headers: NGROK_HEADERS,

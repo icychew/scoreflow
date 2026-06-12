@@ -21,9 +21,18 @@ pypdf>=4.0.0
 # Tempo / beat detection
 librosa>=0.10.0
 
-# High Quality mode
+# YouTube link ingestion
+yt-dlp>=2024.1.0
+
+# High Quality mode (optional — used by quality="high" only)
 audio-separator>=0.23.0
-piano-transcription-inference>=0.0.21
+# piano-transcription-inference: latest versions require Python 3.9-3.10
+# but Cloud Run runs Python 3.11 via python:3.11-slim. The pipeline
+# imports this lazily inside transcribe_piano_hq() and falls back with a
+# clear ImportError message if it's missing. Standard quality mode does
+# NOT depend on this. To enable HQ piano on a Python 3.10 host, install
+# manually: `pip install piano-transcription-inference>=0.0.21`.
+# piano-transcription-inference>=0.0.21
 
 # OMR validation
 inference>=0.9.0

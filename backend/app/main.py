@@ -322,6 +322,92 @@ async def create_job(
     return {"job_id": job_id, "status": job.status}
 
 
+_YOUTUBE_HOSTS = ("youtube.com", "www.youtube.com", "m.youtube.com", "youtu.be", "music.youtube.com")
+_MAX_YOUTUBE_SECONDS = 600  # 10 min cap protects CPU/RAM on the worker
+
+
+@app.post("/api/jobs/youtube", status_code=201)
+def create_job_from_youtube(
+    url: str = Form(...),
+    quality: str = Form("standard"),
+    refine: bool = Form(True),
+) -> dict[str, Any]:
+    """Start a transcription job from a YouTube link.
+
+    Downloads the best audio track with yt-dlp, then runs the exact same
+    pipeline as a file upload. Length capped at 10 minutes. Users are
+    responsible for only transcribing content they have rights to — the
+    frontend shows this disclaimer next to the input.
+    """
+    try:
+        import yt_dlp  # lazy — keeps startup fast and makes the dep optional
+    except ImportError:
+        raise HTTPException(
+            status_code=503,
+            detail="YouTube ingestion is not available on this server (yt-dlp not installed).",
+        )
+
+    from urllib.parse import urlparse
+    parsed = urlparse(url.strip())
+    host = (parsed.hostname or "").lower()
+    if parsed.scheme not in ("http", "https") or host not in _YOUTUBE_HOSTS:
+        raise HTTPException(status_code=400, detail="Not a valid YouTube URL")
+
+    if quality not in ("standard", "high"):
+        quality = "standard"
+
+    job_id = str(uuid.uuid4())
+    job_dir = JOBS_DIR / job_id
+    job_dir.mkdir(parents=True, exist_ok=True)
+
+    outtmpl = str(job_dir / "input.%(ext)s")
+    ydl_opts = {
+        "format": "bestaudio/best",
+        "outtmpl": outtmpl,
+        "noplaylist": True,
+        "quiet": True,
+        "no_warnings": True,
+        # Reject anything longer than the cap before downloading
+        "match_filter": yt_dlp.utils.match_filter_func(
+            f"duration <= {_MAX_YOUTUBE_SECONDS}"
+        ),
+    }
+
+    try:
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            info = ydl.extract_info(url, download=True)
+    except Exception as exc:
+        shutil.rmtree(job_dir, ignore_errors=True)
+        raise HTTPException(status_code=400, detail=f"Could not fetch audio: {exc}")
+
+    audio_files = sorted(p for p in job_dir.glob("input.*") if p.is_file())
+    if not audio_files:
+        shutil.rmtree(job_dir, ignore_errors=True)
+        # match_filter rejections end up here — most likely cause is length
+        raise HTTPException(
+            status_code=400,
+            detail=f"No audio downloaded — videos longer than {_MAX_YOUTUBE_SECONDS // 60} minutes are not supported.",
+        )
+    audio_path = audio_files[0]
+
+    job = JobState(job_id=job_id)
+    with _JOBS_LOCK:
+        _JOBS[job_id] = job
+
+    thread = threading.Thread(
+        target=_run_pipeline_thread,
+        args=(job_id, audio_path, quality, refine),
+        daemon=True,
+        name=f"pipeline-{job_id[:8]}",
+    )
+    thread.start()
+
+    title = None
+    if isinstance(info, dict):
+        title = info.get("title")
+    return {"job_id": job_id, "status": job.status, "title": title}
+
+
 @app.get("/api/jobs/{job_id}")
 def get_job(job_id: str) -> JobState:
     """Poll job status and progress."""

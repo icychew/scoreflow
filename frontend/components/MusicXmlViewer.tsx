@@ -115,6 +115,9 @@ export default function MusicXmlViewer({
   const [isDirty, setIsDirty] = useState(false);
   const [isEditedOnDisk, setIsEditedOnDisk] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
+  // AI practice coach (Pro feature — route enforces the gate)
+  const [coachTips, setCoachTips] = useState<string | null>(null);
+  const [coachLoading, setCoachLoading] = useState(false);
   // Playback source: "synth" = Tone.js MIDI playback, "original" = raw audio,
   // "mix" = subscribe to the parent UnifiedPlayer's time source (cursor follows
   // the multi-stem mix being played in ResultsPanel above).
@@ -605,6 +608,76 @@ export default function MusicXmlViewer({
     }
   }, [jobId, stem, difficulty, reloadFromXml]);
 
+  /** Ask the AI practice coach for tips based on a compact score summary. */
+  const handleAskCoach = useCallback(async () => {
+    if (coachLoading) return;
+    setCoachLoading(true);
+    try {
+      // Extract key + time signature from the loaded MusicXML
+      let keySignature: string | undefined;
+      let timeSignature: string | undefined;
+      let noteCount = 0;
+      try {
+        const doc = new DOMParser().parseFromString(
+          currentXmlRef.current,
+          "application/xml",
+        );
+        noteCount = doc.getElementsByTagName("note").length;
+        const fifthsText = doc.getElementsByTagName("fifths")[0]?.textContent;
+        if (fifthsText !== null && fifthsText !== undefined) {
+          const fifths = Number(fifthsText);
+          const MAJOR_BY_FIFTHS: Record<number, string> = {
+            [-7]: "Cb major", [-6]: "Gb major", [-5]: "Db major", [-4]: "Ab major",
+            [-3]: "Eb major", [-2]: "Bb major", [-1]: "F major", 0: "C major",
+            1: "G major", 2: "D major", 3: "A major", 4: "E major",
+            5: "B major", 6: "F# major", 7: "C# major",
+          };
+          keySignature = MAJOR_BY_FIFTHS[fifths];
+        }
+        const beats = doc.getElementsByTagName("beats")[0]?.textContent;
+        const beatType = doc.getElementsByTagName("beat-type")[0]?.textContent;
+        if (beats && beatType) timeSignature = `${beats}/${beatType}`;
+      } catch { /* summary stays partial — fine */ }
+
+      const res = await fetch("/api/ai/coach", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          stem,
+          difficulty,
+          noteCount,
+          tempoBpm,
+          keySignature,
+          timeSignature,
+        }),
+      });
+      const data = (await res.json()) as { tips?: string; error?: string; upgrade?: boolean };
+      if (!res.ok) {
+        if (res.status === 403 && data.upgrade) {
+          toast.error("AI practice coach is a Pro feature", {
+            description: "Upgrade to Pro to get personalised practice tips for every score.",
+            action: {
+              label: "See plans",
+              onClick: () => { window.location.href = "/pricing"; },
+            },
+          });
+        } else if (res.status === 401) {
+          toast.error("Sign in to use the AI coach");
+        } else {
+          toast.error("Coach unavailable", { description: data.error });
+        }
+        return;
+      }
+      setCoachTips(data.tips ?? null);
+    } catch (err) {
+      toast.error("Coach unavailable", {
+        description: err instanceof Error ? err.message : "Network error",
+      });
+    } finally {
+      setCoachLoading(false);
+    }
+  }, [stem, difficulty, tempoBpm, coachLoading]);
+
   /** Toggle edit mode on/off. Clears selection when exiting. */
   const handleToggleEditMode = useCallback(() => {
     setIsEditMode((prev) => {
@@ -890,6 +963,19 @@ export default function MusicXmlViewer({
             📄 Save as PDF
           </a>
 
+          {/* AI practice coach — Pro feature, route enforces the gate */}
+          {!readOnly && (
+            <button
+              type="button"
+              onClick={handleAskCoach}
+              disabled={coachLoading}
+              className="flex items-center gap-1.5 rounded-md border border-violet-300 bg-violet-50 px-3 py-1.5 text-xs font-semibold text-violet-800 hover:bg-violet-100 disabled:opacity-60 disabled:cursor-not-allowed transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet-500 focus-visible:ring-offset-1 focus-visible:ring-offset-slate-50"
+              title="Personalised practice tips for this part (Pro)"
+            >
+              {coachLoading ? "Thinking…" : "🎯 AI practice tips"}
+            </button>
+          )}
+
           {/* Editor — only on the "hard" (canonical) difficulty + non-read-only */}
           {difficulty === "hard" && !readOnly && (
             <>
@@ -1119,6 +1205,28 @@ export default function MusicXmlViewer({
             <span className="text-xs text-red-600 basis-full">⚠ {playError}</span>
           )}
           </>
+          )}
+
+          {/* AI coach tips panel */}
+          {coachTips && (
+            <div className="basis-full rounded-md border border-violet-200 bg-violet-50 px-4 py-3">
+              <div className="flex items-start justify-between gap-3">
+                <h4 className="text-xs font-semibold uppercase tracking-widest text-violet-700 mb-2">
+                  🎯 Practice tips for this part
+                </h4>
+                <button
+                  type="button"
+                  aria-label="Dismiss tips"
+                  onClick={() => setCoachTips(null)}
+                  className="text-violet-400 hover:text-violet-700 text-base leading-none"
+                >
+                  ×
+                </button>
+              </div>
+              <div className="text-sm text-slate-800 whitespace-pre-line leading-relaxed">
+                {coachTips}
+              </div>
+            </div>
           )}
         </div>
       )}
