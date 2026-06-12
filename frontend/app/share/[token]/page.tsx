@@ -9,7 +9,7 @@ interface PageProps {
 }
 
 export const metadata: Metadata = {
-  title: "Shared score — Notara",
+  title: "Shared score — SongScore",
 };
 
 interface ShareRow {
@@ -88,7 +88,7 @@ export default async function SharePage({ params }: PageProps) {
       <div className="mb-8">
         <div className="inline-flex items-center gap-2 rounded-full border border-violet-500/30 bg-violet-500/10 px-3 py-1 text-xs text-violet-300 mb-4">
           <span aria-hidden="true">♪</span>
-          Shared via Notara
+          Shared via SongScore
         </div>
         <h1 className="text-2xl sm:text-3xl font-bold text-white mb-2">
           {displayTitle}
@@ -118,14 +118,14 @@ export default async function SharePage({ params }: PageProps) {
           Want to make your own?
         </h2>
         <p className="text-sm text-[#a1a1aa] mb-5">
-          Notara turns audio recordings into sheet music in seconds.
+          SongScore turns audio recordings into sheet music in seconds.
         </p>
         <div className="flex flex-col sm:flex-row gap-3 justify-center">
           <Link
             href="/app"
             className="rounded-lg bg-gradient-to-r from-violet-600 to-indigo-700 px-6 py-2.5 text-sm font-semibold text-white hover:opacity-90 transition-opacity focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet-500 focus-visible:ring-offset-2 focus-visible:ring-offset-[#09090b]"
           >
-            Try Notara free →
+            Try SongScore free →
           </Link>
           <Link
             href="/"
@@ -150,7 +150,7 @@ function NotFoundPanel({ reason, details }: { reason: string; details?: string }
         href="/"
         className="inline-block rounded-lg bg-gradient-to-r from-violet-600 to-indigo-700 px-6 py-2.5 text-sm font-semibold text-white hover:opacity-90 transition-opacity"
       >
-        Go to Notara →
+        Go to SongScore →
       </Link>
     </div>
   );

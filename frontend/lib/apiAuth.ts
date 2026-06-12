@@ -3,7 +3,7 @@ import { db } from "@/lib/db";
 
 /**
  * API key format: nta_<24 random base64url chars>
- * - "nta_" prefix is a Notara identifier (helps users recognise / search)
+ * - "nta_" prefix is a SongScore identifier (helps users recognise / search)
  * - The first 8 chars (prefix) are stored in plaintext for display
  * - The full key is hashed (SHA-256) before storage
  */

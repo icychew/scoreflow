@@ -8,7 +8,7 @@ import type { Metadata } from "next";
 import DashboardList, { type DashboardItem } from "@/components/DashboardList";
 
 export const metadata: Metadata = {
-  title: "Dashboard — Notara",
+  title: "Dashboard — SongScore",
 };
 
 export default async function DashboardPage() {
@@ -148,7 +148,7 @@ export default async function DashboardPage() {
               No transcriptions yet
             </h3>
             <p className="text-sm text-[#71717a] mb-6 max-w-sm mx-auto">
-              Upload your first audio file and Notara will turn it into sheet
+              Upload your first audio file and SongScore will turn it into sheet
               music in seconds.
             </p>
             <div className="flex flex-col sm:flex-row gap-3 justify-center">

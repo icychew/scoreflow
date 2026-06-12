@@ -2,10 +2,41 @@ import Link from "next/link";
 import type { Metadata } from "next";
 
 export const metadata: Metadata = {
-  title: "Notara — Convert Audio to Sheet Music with AI",
+  title: "SongScore — Convert Audio to Sheet Music with AI",
   description:
-    "Upload any audio file and get a clean PDF sheet music score in seconds. Notara uses AI to separate stems and transcribe each instrument. Free to try — no signup needed.",
+    "Upload any audio file and get a clean PDF sheet music score in seconds. SongScore uses AI to separate stems and transcribe each instrument. Free to try — no signup needed.",
 };
+
+const FAQ_ITEMS: Array<{ q: string; a: string }> = [
+  {
+    q: "How do I convert audio to sheet music?",
+    a: "Upload an MP3, WAV, or FLAC to SongScore. The AI separates the recording into stems (vocals, bass, piano, guitar, drums), transcribes each instrument, and produces printable PDF sheet music plus MIDI and MusicXML — usually in under a minute.",
+  },
+  {
+    q: "Can SongScore transcribe a full song with multiple instruments?",
+    a: "Yes — that's the core difference from single-instrument tools. SongScore uses AI stem separation (Demucs) so a full-band recording becomes a separate score for each instrument, not one merged staff.",
+  },
+  {
+    q: "What file formats does SongScore export?",
+    a: "PDF sheet music for printing, MIDI for DAWs, and MusicXML for editing in MuseScore, Sibelius, or Finale. Pro and Business plans unlock MIDI and MusicXML downloads.",
+  },
+  {
+    q: "How accurate is the AI transcription?",
+    a: "SongScore publishes its note-level accuracy benchmarks per instrument on public datasets — see the Accuracy page. Clean solo recordings transcribe best; full mixes are separated into stems first to maximise per-instrument accuracy. You can also click any note in the browser to correct it.",
+  },
+  {
+    q: "Is SongScore free?",
+    a: "The free plan includes 3 transcriptions per month with PDF export, no credit card required. Pro ($12/mo) adds 50 transcriptions, MIDI + MusicXML export, difficulty levels, and history. Business ($49/mo) adds REST API access.",
+  },
+  {
+    q: "Can I get easier sheet music for beginner students?",
+    a: "Yes. Every transcription generates three difficulty levels — Easy (Grade 1-3, single-line, quarter-note floor), Medium (Grade 4-6), and Hard (the full transcription) — so teachers can hand the same song to students at different levels.",
+  },
+  {
+    q: "Can I convert MP3 to MIDI?",
+    a: "Yes. Every SongScore transcription includes a quantized MIDI file per instrument stem, ready to drop into any DAW or notation software.",
+  },
+];
 
 export default function LandingPage() {
   return (
@@ -35,7 +66,7 @@ export default function LandingPage() {
           </h1>
 
           <p className="mt-6 text-xl text-[#a1a1aa] max-w-2xl mx-auto leading-relaxed">
-            Notara separates your recording into stems and transcribes each instrument
+            SongScore separates your recording into stems and transcribes each instrument
             to a clean PDF score — open-source pipeline, no GPU required,{" "}
             <Link
               href="/accuracy"
@@ -89,7 +120,7 @@ export default function LandingPage() {
                 step: "02",
                 title: "AI separates the stems",
                 description:
-                  "Notara splits your audio into vocals, bass, and other instruments using Demucs — studio-grade source separation.",
+                  "SongScore splits your audio into vocals, bass, and other instruments using Demucs — studio-grade source separation.",
               },
               {
                 step: "03",
@@ -192,6 +223,48 @@ export default function LandingPage() {
         </div>
       </section>
 
+      {/* FAQ — targets long-tail queries + powers FAQPage rich results */}
+      <section className="px-6 py-20 border-t border-[#27272a]">
+        <div className="mx-auto max-w-3xl">
+          <h2 className="text-center text-3xl font-bold text-white mb-4">
+            Frequently asked questions
+          </h2>
+          <p className="text-center text-[#71717a] mb-12">
+            Everything about converting audio to sheet music with SongScore.
+          </p>
+          <div className="flex flex-col gap-4">
+            {FAQ_ITEMS.map(({ q, a }) => (
+              <details
+                key={q}
+                className="group rounded-xl border border-[#27272a] bg-[#111113] p-5"
+              >
+                <summary className="cursor-pointer text-sm font-semibold text-white list-none flex items-center justify-between">
+                  {q}
+                  <span className="text-violet-400 transition-transform group-open:rotate-45 text-lg leading-none">+</span>
+                </summary>
+                <p className="mt-3 text-sm text-[#a1a1aa] leading-relaxed">{a}</p>
+              </details>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      {/* FAQPage structured data */}
+      <script
+        type="application/ld+json"
+        dangerouslySetInnerHTML={{
+          __html: JSON.stringify({
+            "@context": "https://schema.org",
+            "@type": "FAQPage",
+            "mainEntity": FAQ_ITEMS.map(({ q, a }) => ({
+              "@type": "Question",
+              "name": q,
+              "acceptedAnswer": { "@type": "Answer", "text": a },
+            })),
+          }),
+        }}
+      />
+
       {/* JSON-LD structured data */}
       <script
         type="application/ld+json"
@@ -199,9 +272,9 @@ export default function LandingPage() {
           __html: JSON.stringify({
             "@context": "https://schema.org",
             "@type": "SoftwareApplication",
-            "name": "Notara",
+            "name": "SongScore",
             "description": "Convert audio files to sheet music PDF using AI stem separation and transcription.",
-            "url": "https://notara.app",
+            "url": "https://songscore.app",
             "applicationCategory": "MusicApplication",
             "operatingSystem": "Web",
             "offers": [

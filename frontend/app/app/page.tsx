@@ -49,7 +49,7 @@ export default function AppPage() {
           <span className="text-violet-400">sheet music</span>
         </h1>
         <p className="mt-4 text-lg text-[#a1a1aa]">
-          Upload an MP3, WAV, or FLAC. Notara's AI separates the stems, transcribes
+          Upload an MP3, WAV, or FLAC. SongScore's AI separates the stems, transcribes
           each instrument, and delivers a clean PDF score — ready in seconds.
         </p>
       </div>

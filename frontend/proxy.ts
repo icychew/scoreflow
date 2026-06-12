@@ -12,8 +12,8 @@ export default auth((req) => {
   }
 
   // Set anonymous session token cookie (30-day) if not present and user not signed in
-  if (!session && !req.cookies.get("notara_session")) {
-    res.cookies.set("notara_session", nanoid(), {
+  if (!session && !req.cookies.get("songscore_session")) {
+    res.cookies.set("songscore_session", nanoid(), {
       maxAge: 60 * 60 * 24 * 30,
       httpOnly: true,
       sameSite: "lax",

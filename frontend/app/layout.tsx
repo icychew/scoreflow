@@ -7,24 +7,41 @@ import "./globals.css";
 const inter = Inter({ subsets: ["latin"] });
 
 export const metadata: Metadata = {
-  title: "Notara — Convert Audio to Sheet Music with AI",
+  metadataBase: new URL("https://songscore.app"),
+  title: {
+    default: "SongScore — AI Music Transcription: Audio to Sheet Music",
+    template: "%s | SongScore",
+  },
   description:
-    "Upload any audio file and get a clean PDF sheet music score in seconds. Notara uses AI to separate stems and transcribe each instrument. Free to try — no signup needed.",
+    "Convert any song to sheet music with AI. SongScore transcribes MP3, WAV or FLAC into printable scores, MIDI, and MusicXML — every instrument separated, with Easy/Medium/Hard difficulty levels. Free to try, no signup needed.",
+  keywords: [
+    "audio to sheet music",
+    "music to score",
+    "mp3 to sheet music",
+    "AI music transcription",
+    "song to sheet music converter",
+    "audio to MIDI",
+    "transcribe music to notation",
+    "mp3 to MusicXML",
+  ],
+  alternates: { canonical: "/" },
   openGraph: {
-    title: "Notara — Convert Audio to Sheet Music with AI",
+    title: "SongScore — AI Music Transcription: Audio to Sheet Music",
     description:
-      "Upload audio. Get sheet music. Powered by AI stem separation and transcription.",
-    url: "https://notara.app",
-    siteName: "Notara",
+      "Turn any song into sheet music — every instrument, every level. AI stem separation + transcription with published accuracy benchmarks.",
+    url: "https://songscore.app",
+    siteName: "SongScore",
     images: [{ url: "/og-image.png", width: 1200, height: 630 }],
     type: "website",
   },
   twitter: {
     card: "summary_large_image",
-    title: "Notara — Convert Audio to Sheet Music with AI",
-    description: "Upload audio. Get sheet music. Powered by AI.",
+    title: "SongScore — AI Music Transcription: Audio to Sheet Music",
+    description:
+      "Turn any song into sheet music — every instrument, every level.",
     images: ["/og-image.png"],
   },
+  robots: { index: true, follow: true },
 };
 
 export default function RootLayout({
@@ -43,9 +60,9 @@ export default function RootLayout({
           <div className="mx-auto max-w-5xl flex flex-col sm:flex-row items-center justify-between gap-4">
             <div className="flex items-center gap-2">
               <div className="w-5 h-5 rounded bg-gradient-to-br from-violet-600 to-indigo-700 flex items-center justify-center text-[10px] font-bold text-white">
-                N
+                S
               </div>
-              <span className="text-sm font-semibold text-white">Notara</span>
+              <span className="text-sm font-semibold text-white">SongScore</span>
             </div>
             <nav aria-label="Footer" className="flex flex-wrap justify-center gap-x-6 gap-y-2">
               <a href="/pricing" className="text-xs text-[#71717a] hover:text-white transition-colors">Pricing</a>
@@ -53,10 +70,11 @@ export default function RootLayout({
               <a href="/viewer" className="text-xs text-[#71717a] hover:text-white transition-colors">Viewer</a>
               <a href="/docs" className="text-xs text-[#71717a] hover:text-white transition-colors">API</a>
               <a href="/accuracy" className="text-xs text-[#71717a] hover:text-white transition-colors">Accuracy</a>
+              <a href="/compare" className="text-xs text-[#71717a] hover:text-white transition-colors">Compare</a>
               <a href="/signin" className="text-xs text-[#71717a] hover:text-white transition-colors">Sign in</a>
             </nav>
             <p className="text-xs text-[#71717a] text-center">
-              © {new Date().getFullYear()} Notara. Powered by Demucs · Basic Pitch · music21
+              © {new Date().getFullYear()} SongScore. Powered by Demucs · Basic Pitch · music21
             </p>
           </div>
         </footer>

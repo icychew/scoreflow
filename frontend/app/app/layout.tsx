@@ -6,9 +6,9 @@ import UpgradePrompt from "@/components/UpgradePrompt";
 import type { Metadata } from "next";
 
 export const metadata: Metadata = {
-  title: "Notara — Upload Audio & Get Sheet Music",
+  title: "SongScore — Upload Audio & Get Sheet Music",
   description:
-    "Drag and drop any MP3, WAV, or FLAC. Notara's AI transcribes your audio to sheet music and delivers a PDF score in seconds. Free to try.",
+    "Drag and drop any MP3, WAV, or FLAC. SongScore's AI transcribes your audio to sheet music and delivers a PDF score in seconds. Free to try.",
 };
 
 export default async function AppLayout({
@@ -24,7 +24,7 @@ export default async function AppLayout({
     used = await getMonthlyUsage(session.user.id);
   } else {
     const cookieStore = await cookies();
-    const sessionToken = cookieStore.get("notara_session")?.value;
+    const sessionToken = cookieStore.get("songscore_session")?.value;
     if (sessionToken) {
       used = await getAnonymousUsage(sessionToken);
     }

@@ -12,7 +12,7 @@ interface PageProps {
 const ALLOWED_DIFFICULTIES = new Set(["easy", "medium", "hard"]);
 
 export const metadata: Metadata = {
-  title: "Score — Notara",
+  title: "Score — SongScore",
 };
 
 interface TranscriptionRow {
@@ -118,7 +118,7 @@ function UnavailablePanel({ reason }: { reason: string }) {
           href="/"
           className="inline-block rounded-lg bg-gradient-to-r from-violet-600 to-indigo-700 px-6 py-2.5 text-sm font-semibold text-white hover:opacity-90 transition-opacity"
         >
-          Go to Notara →
+          Go to SongScore →
         </Link>
       </div>
     </div>

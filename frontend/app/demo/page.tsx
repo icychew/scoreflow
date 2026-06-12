@@ -31,7 +31,7 @@ export default function DemoPage() {
           Live demo · No upload required
         </div>
         <h1 className="text-3xl sm:text-4xl font-bold tracking-tight text-white mb-4">
-          See what Notara delivers
+          See what SongScore delivers
         </h1>
         <p className="text-base sm:text-lg text-[#a1a1aa] max-w-2xl mx-auto">
           Every transcription you upload comes back like this — clean, readable
@@ -76,7 +76,7 @@ export default function DemoPage() {
           Now try it with <span className="text-violet-300">your own audio</span>
         </h2>
         <p className="text-[#a1a1aa] mb-6 max-w-xl mx-auto">
-          Upload an MP3, WAV, or FLAC — Notara separates the stems, transcribes
+          Upload an MP3, WAV, or FLAC — SongScore separates the stems, transcribes
           each instrument, and gives you a clean PDF + MusicXML in seconds.
         </p>
         <div className="flex flex-col sm:flex-row gap-3 justify-center">

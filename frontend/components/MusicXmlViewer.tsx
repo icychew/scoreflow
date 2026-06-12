@@ -255,14 +255,14 @@ export default function MusicXmlViewer({
   function refreshSelectionHighlight(index: number | null) {
     const container = osmdContainerRef.current;
     if (!container) return;
-    container.querySelectorAll(".notara-note-selected").forEach((el) => {
-      el.classList.remove("notara-note-selected");
+    container.querySelectorAll(".songscore-note-selected").forEach((el) => {
+      el.classList.remove("songscore-note-selected");
     });
     if (index === null) return;
     const el = container.querySelector<SVGElement>(
       `.vf-notehead[data-note-index="${index}"]`,
     );
-    el?.classList.add("notara-note-selected");
+    el?.classList.add("songscore-note-selected");
   }
 
   /** Compute a human label like "C4" for the selected note in the current XML. */

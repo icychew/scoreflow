@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 
 export const metadata: Metadata = {
-  title: "Accuracy benchmarks — Notara",
+  title: "Accuracy benchmarks — SongScore",
   description:
     "Published F1 / precision / recall numbers per instrument category. " +
     "Measured against MAPS, MIR-ST500, GuitarSet and MUSDB18 public benchmarks.",
@@ -110,7 +110,7 @@ export default function AccuracyPage() {
     <div className="mx-auto max-w-4xl px-4 sm:px-6 py-10 sm:py-14">
       <div className="mb-10">
         <h1 className="text-3xl sm:text-4xl font-bold tracking-tight text-white mb-3">
-          Notara accuracy benchmarks
+          SongScore accuracy benchmarks
         </h1>
         <p className="text-base text-[#a1a1aa]">
           We publish our note-level F1 scores against industry-standard public
@@ -189,7 +189,7 @@ export default function AccuracyPage() {
         <h2 className="text-xl font-semibold text-white mb-4">Methodology</h2>
         <div className="prose prose-invert max-w-none text-sm text-[#a1a1aa]">
           <p>
-            For each test sample we run the full Notara pipeline (Demucs source
+            For each test sample we run the full SongScore pipeline (Demucs source
             separation → Basic Pitch transcription → cleanup → quantization →
             music21 score generation) and compare the resulting MIDI notes
             against the dataset&apos;s ground-truth MIDI.
@@ -274,7 +274,7 @@ python -m backend.tests.benchmark.run_benchmark \\
 
       <div className="mt-12 text-center text-sm text-[#71717a]">
         <Link href="/" className="text-violet-400 hover:text-violet-300 underline">
-          ← Back to Notara
+          ← Back to SongScore
         </Link>
       </div>
     </div>

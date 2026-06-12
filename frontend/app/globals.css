@@ -1,19 +1,19 @@
 @import "tailwindcss";
 
 :root {
-  --notara-bg: #09090b;
-  --notara-surface: #111113;
-  --notara-border: #27272a;
-  --notara-accent: #7c3aed;
-  --notara-accent-light: #a78bfa;
-  --notara-text-primary: #ffffff;
-  --notara-text-secondary: #a1a1aa;
-  --notara-text-muted: #71717a;
+  --songscore-bg: #09090b;
+  --songscore-surface: #111113;
+  --songscore-border: #27272a;
+  --songscore-accent: #7c3aed;
+  --songscore-accent-light: #a78bfa;
+  --songscore-text-primary: #ffffff;
+  --songscore-text-secondary: #a1a1aa;
+  --songscore-text-muted: #71717a;
 }
 
 body {
-  background: var(--notara-bg);
-  color: var(--notara-text-primary);
+  background: var(--songscore-bg);
+  color: var(--songscore-text-primary);
 }
 
 /*
@@ -33,14 +33,14 @@ body {
  * Violet outline ring + bold fill so it's distinguishable on the white
  * score background.
  */
-.notara-note-selected {
+.songscore-note-selected {
   fill: #7c3aed !important;       /* violet-600 */
   stroke: #5b21b6 !important;     /* violet-700 */
   stroke-width: 2 !important;
 }
-.notara-note-selected path,
-.notara-note-selected rect,
-.notara-note-selected ellipse {
+.songscore-note-selected path,
+.songscore-note-selected rect,
+.songscore-note-selected ellipse {
   fill: #7c3aed !important;
   stroke: #5b21b6 !important;
 }

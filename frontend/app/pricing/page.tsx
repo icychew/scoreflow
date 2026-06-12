@@ -3,7 +3,7 @@ import Link from "next/link";
 import PricingCards from "@/components/PricingCards";
 
 export const metadata: Metadata = {
-  title: "Notara Pricing — Free, Pro & Business Plans",
+  title: "SongScore Pricing — Free, Pro & Business Plans",
   description:
     "Start free with 3 transcriptions per month. Upgrade to Pro for 50/month with MIDI and MusicXML. Business gets unlimited transcriptions and API access.",
 };
@@ -27,7 +27,7 @@ const FAQ = [
   },
   {
     q: "What is the Business API?",
-    a: "Business subscribers get a REST API key to integrate Notara's transcription pipeline into their own tools and workflows. Documentation is available in the dashboard.",
+    a: "Business subscribers get a REST API key to integrate SongScore's transcription pipeline into their own tools and workflows. Documentation is available in the dashboard.",
   },
 ];
 

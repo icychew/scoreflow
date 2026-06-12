@@ -8,7 +8,7 @@ export default function SignInPage() {
           <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-violet-600 to-indigo-700 flex items-center justify-center text-xl font-bold text-white mx-auto mb-4">
             N
           </div>
-          <h1 className="text-2xl font-bold text-white">Sign in to Notara</h1>
+          <h1 className="text-2xl font-bold text-white">Sign in to SongScore</h1>
           <p className="text-sm text-[#71717a] mt-2">
             Continue with your Google account
           </p>

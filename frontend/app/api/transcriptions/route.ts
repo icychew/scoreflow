@@ -13,7 +13,7 @@ export async function POST(req: NextRequest) {
   }
 
   const cookieStore = await cookies();
-  const sessionToken = cookieStore.get("notara_session")?.value;
+  const sessionToken = cookieStore.get("songscore_session")?.value;
 
   await recordTranscription({
     userId: session?.user?.id,

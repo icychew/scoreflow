@@ -2,8 +2,8 @@ import Link from "next/link";
 import type { Metadata } from "next";
 
 export const metadata: Metadata = {
-  title: "API Documentation — Notara",
-  description: "Notara REST API reference for the Business plan.",
+  title: "API Documentation — SongScore",
+  description: "SongScore REST API reference for the Business plan.",
 };
 
 const baseUrl = "https://scoreflow-gamma.vercel.app";
@@ -125,7 +125,7 @@ export default function ApiDocsPage() {
     <div className="mx-auto max-w-4xl px-4 sm:px-6 py-10 sm:py-14">
       <div className="mb-10">
         <h1 className="text-3xl sm:text-4xl font-bold text-white mb-3">
-          Notara API
+          SongScore API
         </h1>
         <p className="text-base text-[#a1a1aa]">
           REST endpoints for programmatic access. Available on the{" "}

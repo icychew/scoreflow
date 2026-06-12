@@ -6,7 +6,7 @@ import { isAdmin } from "@/lib/comp";
 import CreateCodeForm from "./CreateCodeForm";
 import RevokeButton from "./RevokeButton";
 
-export const metadata = { title: "Admin · Comp Codes — Notara" };
+export const metadata = { title: "Admin · Comp Codes — SongScore" };
 
 interface CompCodeRow {
   code: string;

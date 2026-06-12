@@ -4,7 +4,7 @@ import { db } from "@/lib/db";
 import Link from "next/link";
 import KeysClient from "./KeysClient";
 
-export const metadata = { title: "API Keys — Notara" };
+export const metadata = { title: "API Keys — SongScore" };
 
 interface KeyRow {
   id: string;
@@ -37,7 +37,7 @@ export default async function KeysPage() {
         <div>
           <h1 className="text-2xl font-bold text-white">API Keys</h1>
           <p className="text-sm text-[#71717a] mt-1">
-            Programmatic access to Notara — Business plan only.
+            Programmatic access to SongScore — Business plan only.
           </p>
         </div>
         <Link

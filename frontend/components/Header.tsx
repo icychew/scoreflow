@@ -30,10 +30,10 @@ export default function Header() {
       <div className="mx-auto flex max-w-5xl items-center gap-4">
         <a href="/" className="flex items-center gap-2 group shrink-0">
           <div className="w-7 h-7 rounded-md bg-gradient-to-br from-violet-600 to-indigo-700 flex items-center justify-center text-xs font-bold text-white">
-            N
+            S
           </div>
           <span className="text-lg font-bold text-white group-hover:text-violet-300 transition-colors">
-            Notara
+            SongScore
           </span>
         </a>
 
