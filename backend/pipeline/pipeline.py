@@ -13,6 +13,7 @@ Usage:
 import argparse
 import json
 import logging
+import shutil
 import sys
 import time
 from dataclasses import dataclass, field
@@ -175,11 +176,14 @@ def run_pipeline(
     score_config: ScoreConfig | None = None,
     quality: str = "standard",
     refine: bool = False,
+    precomputed_stems: dict[str, Path] | None = None,
 ) -> PipelineResult:
     """Run the full audio-to-score pipeline.
 
     Args:
-        input_path: Path to the input audio file.
+        input_path: Path to the input audio file (used for tempo/beat detection
+            and as the separation source). When precomputed_stems is given, this
+            should be the most rhythmically representative stem (drums if present).
         output_dir: Base directory for all output files.
         model_name: Demucs model name for separation. Ignored when quality='high'.
         quantization_config: Config for MIDI quantization. Uses defaults if None.
@@ -188,6 +192,10 @@ def run_pipeline(
             piano_transcription_inference for the piano stem.
         refine: If True, run the chroma-based refinement loop after score generation
             (synthesize MIDI → compare chroma → re-transcribe weak bars).
+        precomputed_stems: Optional mapping of stem_name → audio file path. When
+            provided, Demucs separation is SKIPPED and these files are transcribed
+            directly. Used for Suno stem exports / DAW bounces, where the audio is
+            already separated and re-separating would only add artifacts.
 
     Returns:
         PipelineResult with paths to all generated outputs and per-stem reports.
@@ -211,23 +219,41 @@ def run_pipeline(
     # Empty list → quantizer falls back to fixed-tempo grid using detected_bpm.
     beat_times = _detect_beat_times(input_path)
 
-    # Stage 1: Source Separation
+    # Stage 1: Source Separation (or skip, if stems were provided pre-separated)
     logger.info("=" * 50)
-    logger.info("STAGE 1: Source Separation (Demucs %s)", model_name)
-    logger.info("=" * 50)
-
-    try:
-        sep_result = separate(input_path, stems_dir, model_name=model_name, quality=quality)
-        result.stems = sep_result.stems
-        logger.info(
-            "Separation complete: %d stems in %.1fs",
-            len(sep_result.stems),
-            sep_result.processing_time_seconds,
-        )
-    except SeparationError as exc:
-        logger.error("Source separation failed: %s", exc)
-        result.total_time_seconds = time.monotonic() - start_time
-        return result
+    if precomputed_stems:
+        logger.info("STAGE 1: Skipped — using %d pre-separated stem(s)", len(precomputed_stems))
+        logger.info("=" * 50)
+        stems_dir.mkdir(parents=True, exist_ok=True)
+        copied: dict[str, Path] = {}
+        for stem_name, src in precomputed_stems.items():
+            dest = stems_dir / f"{stem_name}{src.suffix.lower()}"
+            try:
+                shutil.copy2(src, dest)
+                copied[stem_name] = dest
+            except Exception as exc:
+                logger.warning("Could not stage stem '%s' (%s); skipping", stem_name, exc)
+        if not copied:
+            logger.error("No usable pre-separated stems")
+            result.total_time_seconds = time.monotonic() - start_time
+            return result
+        result.stems = copied
+        logger.info("Staged stems: %s", ", ".join(copied.keys()))
+    else:
+        logger.info("STAGE 1: Source Separation (Demucs %s)", model_name)
+        logger.info("=" * 50)
+        try:
+            sep_result = separate(input_path, stems_dir, model_name=model_name, quality=quality)
+            result.stems = sep_result.stems
+            logger.info(
+                "Separation complete: %d stems in %.1fs",
+                len(sep_result.stems),
+                sep_result.processing_time_seconds,
+            )
+        except SeparationError as exc:
+            logger.error("Source separation failed: %s", exc)
+            result.total_time_seconds = time.monotonic() - start_time
+            return result
 
     # Stages 2-4: Per-stem processing
     for stem_name, stem_path in result.stems.items():

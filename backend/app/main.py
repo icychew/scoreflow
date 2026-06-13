@@ -12,6 +12,7 @@ Files stored under JOBS_DIR (default /tmp/scoreflow-jobs).
 
 import logging
 import os
+import re
 import shutil
 import threading
 import uuid
@@ -98,8 +99,18 @@ def _count_midi_notes_approx(midi_path: Path) -> int:
 STAGE_NAMES = ["separation", "transcription", "quantization", "score_generation", "refinement"]
 
 
-def _run_pipeline_thread(job_id: str, audio_path: Path, quality: str = "standard", refine: bool = False) -> None:
-    """Execute the pipeline in a background thread, updating job state."""
+def _run_pipeline_thread(
+    job_id: str,
+    audio_path: Path,
+    quality: str = "standard",
+    refine: bool = False,
+    stem_paths: dict[str, Path] | None = None,
+) -> None:
+    """Execute the pipeline in a background thread, updating job state.
+
+    When stem_paths is provided, Demucs separation is skipped and those
+    pre-separated tracks are transcribed directly (Suno stem export / DAW bounce).
+    """
     from pipeline.pipeline import run_pipeline
     from pipeline.quantizer import QuantizationConfig
 
@@ -150,6 +161,7 @@ def _run_pipeline_thread(job_id: str, audio_path: Path, quality: str = "standard
             quantization_config=QuantizationConfig(),
             quality=quality,
             refine=refine,
+            precomputed_stems=stem_paths,
         )
 
         # Map pipeline result stages to our stage tracking
@@ -408,6 +420,207 @@ def create_job_from_youtube(
     return {"job_id": job_id, "status": job.status, "title": title}
 
 
+# ── Suno link import ─────────────────────────────────────────────────────────
+
+_SUNO_HOSTS = ("suno.com", "www.suno.com", "app.suno.ai", "suno.ai", "www.suno.ai")
+_SUNO_UUID_RE = re.compile(
+    r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}", re.IGNORECASE
+)
+# Suno serves public song audio unauthenticated from these CDN hosts. The URL
+# shape is Suno-internal and may change — the stem-upload path is the permanent
+# fallback when this breaks.
+_SUNO_CDN_HOSTS = ("https://cdn1.suno.ai", "https://cdn2.suno.ai", "https://cdn.suno.ai")
+
+
+@app.post("/api/jobs/suno", status_code=201)
+def create_job_from_suno(
+    url: str = Form(...),
+    quality: str = Form("standard"),
+    refine: bool = Form(True),
+) -> dict[str, Any]:
+    """Start a transcription job from a Suno song link.
+
+    Accepts a suno.com / suno.ai song URL (or a direct cdn*.suno.ai mp3 link),
+    extracts the song UUID, and downloads the public audio from Suno's CDN.
+    Then runs the identical pipeline as a file upload. The song must be public.
+    """
+    import urllib.request
+    from urllib.parse import urlparse
+
+    raw = url.strip()
+    parsed = urlparse(raw)
+    host = (parsed.hostname or "").lower()
+
+    # Allow either a known Suno host, or a direct CDN mp3 link
+    is_cdn = host.endswith("suno.ai") and parsed.path.lower().endswith(".mp3")
+    if not (host in _SUNO_HOSTS or is_cdn):
+        raise HTTPException(status_code=400, detail="Not a valid Suno URL")
+
+    match = _SUNO_UUID_RE.search(raw)
+    if not match:
+        raise HTTPException(
+            status_code=400,
+            detail="Could not find a Suno song ID in that URL. Use the song's share link.",
+        )
+    song_id = match.group(0)
+
+    if quality not in ("standard", "high"):
+        quality = "standard"
+
+    job_id = str(uuid.uuid4())
+    job_dir = JOBS_DIR / job_id
+    job_dir.mkdir(parents=True, exist_ok=True)
+    audio_path = job_dir / "input.mp3"
+
+    # If the user pasted a direct CDN mp3, try that first; else try CDN hosts.
+    candidate_urls = [raw] if is_cdn else [f"{base}/{song_id}.mp3" for base in _SUNO_CDN_HOSTS]
+
+    downloaded = False
+    last_err = ""
+    for cand in candidate_urls:
+        try:
+            req = urllib.request.Request(cand, headers={"User-Agent": "Mozilla/5.0 SongScore/1.0"})
+            with urllib.request.urlopen(req, timeout=30) as resp:
+                total = 0
+                with open(audio_path, "wb") as fh:
+                    while True:
+                        chunk = resp.read(64 * 1024)
+                        if not chunk:
+                            break
+                        total += len(chunk)
+                        if total > MAX_UPLOAD_BYTES:
+                            raise ValueError("file too large")
+                        fh.write(chunk)
+            if total > 0:
+                downloaded = True
+                break
+        except Exception as exc:  # noqa: BLE001 — try next CDN host
+            last_err = str(exc)
+            continue
+
+    if not downloaded:
+        shutil.rmtree(job_dir, ignore_errors=True)
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "Could not fetch the Suno audio. Make sure the song is public, "
+                "or download the MP3 from Suno and upload it instead."
+                + (f" ({last_err})" if last_err else "")
+            ),
+        )
+
+    job = JobState(job_id=job_id)
+    with _JOBS_LOCK:
+        _JOBS[job_id] = job
+
+    thread = threading.Thread(
+        target=_run_pipeline_thread,
+        args=(job_id, audio_path, quality, refine),
+        daemon=True,
+        name=f"pipeline-{job_id[:8]}",
+    )
+    thread.start()
+
+    return {"job_id": job_id, "status": job.status}
+
+
+# ── Pre-separated stem upload (Suno stem export / DAW bounce) ─────────────────
+
+_STEM_AUDIO_EXTENSIONS = ALLOWED_EXTENSIONS | {".m4a", ".ogg"}
+_MAX_STEMS = 8
+
+
+def _infer_stem_name(filename: str) -> str:
+    """Map an uploaded filename to a canonical stem name.
+
+    Suno exports files like 'Vocals.wav', 'Drums.wav', 'Bass.wav'. We match on
+    keywords; anything unrecognised falls back to 'other'.
+    """
+    f = filename.lower()
+    if "vocal" in f or "voice" in f or "lead" in f:
+        return "vocals"
+    if "drum" in f or "perc" in f:
+        return "drums"
+    if "bass" in f:
+        return "bass"
+    if "guitar" in f:
+        return "guitar"
+    if "piano" in f or "key" in f or "synth" in f:
+        return "piano"
+    return "other"
+
+
+@app.post("/api/jobs/stems", status_code=201)
+async def create_job_from_stems(
+    files: list[UploadFile] = File(...),
+    quality: str = Form("standard"),
+    refine: bool = Form(True),
+) -> dict[str, Any]:
+    """Transcribe a set of pre-separated stems directly (no Demucs).
+
+    Each uploaded file is one already-isolated instrument/voice track. The
+    filename determines the stem name (Vocals.wav → vocals, etc.). Skipping
+    separation avoids re-separation artifacts and is the highest-fidelity path
+    for Suno stem exports and DAW bounces.
+    """
+    if not files:
+        raise HTTPException(status_code=400, detail="No files uploaded")
+    if len(files) > _MAX_STEMS:
+        raise HTTPException(status_code=400, detail=f"At most {_MAX_STEMS} stems supported")
+    if quality not in ("standard", "high"):
+        quality = "standard"
+
+    job_id = str(uuid.uuid4())
+    job_dir = JOBS_DIR / job_id
+    stems_in_dir = job_dir / "stems_in"
+    stems_in_dir.mkdir(parents=True, exist_ok=True)
+
+    stem_paths: dict[str, Path] = {}
+    for upload in files:
+        suffix = Path(upload.filename or "").suffix.lower()
+        if suffix not in _STEM_AUDIO_EXTENSIONS:
+            shutil.rmtree(job_dir, ignore_errors=True)
+            raise HTTPException(
+                status_code=400,
+                detail=f"Unsupported stem file type '{suffix}'. Allowed: {', '.join(sorted(_STEM_AUDIO_EXTENSIONS))}",
+            )
+        stem_name = _infer_stem_name(upload.filename or "other")
+        if stem_name in stem_paths:
+            shutil.rmtree(job_dir, ignore_errors=True)
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    f"Two files both look like '{stem_name}'. Rename them so each "
+                    f"stem is distinct (e.g. Vocals.wav, Bass.wav, Drums.wav)."
+                ),
+            )
+        content = await upload.read()
+        if len(content) > MAX_UPLOAD_BYTES:
+            shutil.rmtree(job_dir, ignore_errors=True)
+            raise HTTPException(status_code=413, detail=f"Stem '{upload.filename}' too large (max 50 MB)")
+        dest = stems_in_dir / f"{stem_name}{suffix}"
+        dest.write_bytes(content)
+        stem_paths[stem_name] = dest
+
+    # Tempo reference: prefer drums, else the first stem
+    tempo_ref = stem_paths.get("drums") or next(iter(stem_paths.values()))
+
+    job = JobState(job_id=job_id)
+    with _JOBS_LOCK:
+        _JOBS[job_id] = job
+
+    thread = threading.Thread(
+        target=_run_pipeline_thread,
+        args=(job_id, tempo_ref, quality, refine),
+        kwargs={"stem_paths": stem_paths},
+        daemon=True,
+        name=f"pipeline-{job_id[:8]}",
+    )
+    thread.start()
+
+    return {"job_id": job_id, "status": job.status, "stems": list(stem_paths.keys())}
+
+
 @app.get("/api/jobs/{job_id}")
 def get_job(job_id: str) -> JobState:
     """Poll job status and progress."""
@@ -484,27 +697,31 @@ _AUDIO_MEDIA_TYPES: dict[str, str] = {
 
 @app.get("/api/jobs/{job_id}/stems/{stem}/audio")
 def download_stem_audio(job_id: str, stem: str) -> FileResponse:
-    """Stream the Demucs-separated audio for a single stem.
+    """Stream the separated audio for a single stem.
 
-    Demucs writes each stem as ``output/stems/{stem}.wav`` (mono or stereo
-    PCM_16). This endpoint serves that file so the UnifiedPlayer can load
-    all stems and play them in sync with per-stem mute/solo/volume.
+    Demucs writes each stem as ``output/stems/{stem}.wav``; pre-separated
+    stem uploads (Suno / DAW) preserve their original extension (.mp3, .m4a,
+    etc.). We glob both so the UnifiedPlayer can load + sync every stem
+    regardless of source.
 
     Used by the unified DAW-style player in ResultsPanel.
     """
     _get_job(job_id)
     _validate_stem(stem)
 
-    path = JOBS_DIR / job_id / "output" / "stems" / f"{stem}.wav"
-    if not path.exists():
+    stems_dir = JOBS_DIR / job_id / "output" / "stems"
+    matches = sorted(stems_dir.glob(f"{stem}.*")) if stems_dir.exists() else []
+    if not matches:
         raise HTTPException(
             status_code=404,
             detail=f"Stem audio for '{stem}' not available for this job",
         )
+    path = matches[0]
+    media_type = _AUDIO_MEDIA_TYPES.get(path.suffix.lower(), "audio/wav")
     return FileResponse(
         path=str(path),
-        media_type="audio/wav",
-        headers={"Content-Disposition": f'inline; filename="{stem}.wav"'},
+        media_type=media_type,
+        headers={"Content-Disposition": f'inline; filename="{path.name}"'},
     )
 
 

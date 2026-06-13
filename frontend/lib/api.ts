@@ -73,6 +73,54 @@ export async function transcribeYouTube(
   return res.json();
 }
 
+/** Start a transcription job from a Suno song link (backend downloads the audio). */
+export async function transcribeSuno(
+  url: string,
+  quality: Quality = "standard",
+  refine: boolean = true,
+): Promise<{ job_id: string; status: string }> {
+  const form = new FormData();
+  form.append("url", url);
+  form.append("quality", quality);
+  form.append("refine", refine ? "true" : "false");
+  const res = await fetch(`${API_URL}/api/jobs/suno`, {
+    method: "POST",
+    body: form,
+    headers: NGROK_HEADERS,
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ detail: res.statusText }));
+    throw new Error(err.detail ?? "Suno transcription failed");
+  }
+  return res.json();
+}
+
+/**
+ * Transcribe pre-separated stems directly (Suno stem export / DAW bounce).
+ * Each file is one isolated instrument; the backend infers the stem name from
+ * the filename and skips Demucs separation entirely.
+ */
+export async function uploadStems(
+  files: File[],
+  quality: Quality = "standard",
+  refine: boolean = true,
+): Promise<{ job_id: string; status: string; stems: string[] }> {
+  const form = new FormData();
+  for (const f of files) form.append("files", f);
+  form.append("quality", quality);
+  form.append("refine", refine ? "true" : "false");
+  const res = await fetch(`${API_URL}/api/jobs/stems`, {
+    method: "POST",
+    body: form,
+    headers: NGROK_HEADERS,
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ detail: res.statusText }));
+    throw new Error(err.detail ?? "Stem transcription failed");
+  }
+  return res.json();
+}
+
 export async function pollJob(jobId: string): Promise<JobState> {
   const res = await fetch(`${API_URL}/api/jobs/${jobId}`, {
     headers: NGROK_HEADERS,

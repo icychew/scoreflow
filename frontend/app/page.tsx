@@ -36,6 +36,10 @@ const FAQ_ITEMS: Array<{ q: string; a: string }> = [
     q: "Can I convert MP3 to MIDI?",
     a: "Yes. Every SongScore transcription includes a quantized MIDI file per instrument stem, ready to drop into any DAW or notation software.",
   },
+  {
+    q: "Can I turn a Suno AI song into sheet music?",
+    a: "Yes — SongScore is built for AI-generated music. Paste a public Suno song link and we fetch the audio and transcribe every instrument to sheet music. If you exported per-track stems from Suno (or bounced them from a DAW), upload the stems directly: we skip AI separation and transcribe each isolated track for the cleanest possible score, so you can replicate, modify, and play what the AI generated.",
+  },
 ];
 
 export default function LandingPage() {
