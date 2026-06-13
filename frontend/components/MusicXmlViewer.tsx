@@ -8,7 +8,7 @@ import { useMixTimeSource } from "@/components/UnifiedPlayer";
 
 type PlaybackMode = "synth" | "original" | "mix";
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+const API_URL = process.env.NEXT_PUBLIC_API_URL?.trim() || "http://localhost:8000";
 
 interface MusicXmlViewerProps {
   jobId: string;

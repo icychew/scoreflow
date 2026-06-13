@@ -15,7 +15,7 @@ import { auth } from "@/lib/auth";
  * from OPENAI_API_KEY env (never client-side).
  */
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+const API_URL = process.env.NEXT_PUBLIC_API_URL?.trim() || "http://localhost:8000";
 const WHISPER_URL = "https://api.openai.com/v1/audio/transcriptions";
 
 interface LyricsRequest {
@@ -65,7 +65,7 @@ export async function POST(req: Request) {
     );
   }
 
-  const apiKey = process.env.OPENAI_API_KEY;
+  const apiKey = process.env.OPENAI_API_KEY?.trim();
   if (!apiKey) {
     return NextResponse.json(
       { error: "AI features are not configured on this deployment." },

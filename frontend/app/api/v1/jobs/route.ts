@@ -3,11 +3,11 @@ import { authenticateApiRequest } from "@/lib/apiAuth";
 import { db } from "@/lib/db";
 
 const PUBLIC_BASE =
-  process.env.NEXT_PUBLIC_APP_URL ||
-  process.env.NEXTAUTH_URL ||
+  process.env.NEXT_PUBLIC_APP_URL?.trim() ||
+  process.env.NEXTAUTH_URL?.trim() ||
   "https://scoreflow-gamma.vercel.app";
 
-const PIPELINE_API = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+const PIPELINE_API = process.env.NEXT_PUBLIC_API_URL?.trim() || "http://localhost:8000";
 
 /**
  * GET /api/v1/jobs

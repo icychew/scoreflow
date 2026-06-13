@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { authenticateApiRequest } from "@/lib/apiAuth";
 import { db } from "@/lib/db";
 
-const PIPELINE_API = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+const PIPELINE_API = process.env.NEXT_PUBLIC_API_URL?.trim() || "http://localhost:8000";
 
 /**
  * GET /api/v1/jobs/[id]/audio

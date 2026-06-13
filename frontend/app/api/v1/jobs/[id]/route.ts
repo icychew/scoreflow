@@ -4,8 +4,8 @@ import { db } from "@/lib/db";
 import { pollJob } from "@/lib/api";
 
 const PUBLIC_BASE =
-  process.env.NEXT_PUBLIC_APP_URL ||
-  process.env.NEXTAUTH_URL ||
+  process.env.NEXT_PUBLIC_APP_URL?.trim() ||
+  process.env.NEXTAUTH_URL?.trim() ||
   "https://scoreflow-gamma.vercel.app";
 
 /**

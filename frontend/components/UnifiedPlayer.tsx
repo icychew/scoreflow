@@ -83,7 +83,7 @@ interface UnifiedPlayerProps {
 
 type Phase = "loading" | "ready" | "error";
 
-const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+const apiUrl = process.env.NEXT_PUBLIC_API_URL?.trim() || "http://localhost:8000";
 
 function stemAudioUrl(jobId: string, stem: string): string {
   return `${apiUrl}/api/jobs/${jobId}/stems/${stem}/audio`;

@@ -9,8 +9,10 @@ if (!process.env.GOOGLE_CLIENT_SECRET) throw new Error("Missing GOOGLE_CLIENT_SE
 export const { handlers, signIn, signOut, auth } = NextAuth({
   providers: [
     Google({
-      clientId: process.env.GOOGLE_CLIENT_ID!,
-      clientSecret: process.env.GOOGLE_CLIENT_SECRET!,
+      // .trim() guards against trailing newlines in the Vercel env values
+      // (a stray "\n" on GOOGLE_CLIENT_ID produces Google "invalid_client").
+      clientId: process.env.GOOGLE_CLIENT_ID!.trim(),
+      clientSecret: process.env.GOOGLE_CLIENT_SECRET!.trim(),
     }),
   ],
   callbacks: {

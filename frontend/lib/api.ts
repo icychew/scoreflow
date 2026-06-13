@@ -1,4 +1,4 @@
-const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+const API_URL = process.env.NEXT_PUBLIC_API_URL?.trim() || "http://localhost:8000";
 
 // ngrok free tier shows an interstitial page for browser traffic.
 // This header bypasses it for all API fetch calls.

@@ -51,8 +51,8 @@ export async function POST(req: NextRequest) {
       customer: customerId,
       mode: "subscription",
       line_items: [{ price: priceId, quantity: 1 }],
-      success_url: `${process.env.NEXTAUTH_URL}/dashboard?upgrade=success`,
-      cancel_url: `${process.env.NEXTAUTH_URL}/pricing`,
+      success_url: `${process.env.NEXTAUTH_URL?.trim()}/dashboard?upgrade=success`,
+      cancel_url: `${process.env.NEXTAUTH_URL?.trim()}/pricing`,
     });
 
     return NextResponse.json({ url: checkoutSession.url });

@@ -5,7 +5,7 @@ if (!process.env.SUPABASE_SERVICE_ROLE_KEY) throw new Error("Missing SUPABASE_SE
 
 // Server-side only — uses service role key (bypasses RLS)
 export const db = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL,
-  process.env.SUPABASE_SERVICE_ROLE_KEY,
+  process.env.NEXT_PUBLIC_SUPABASE_URL!.trim(),
+  process.env.SUPABASE_SERVICE_ROLE_KEY!.trim(),
   { auth: { persistSession: false } }
 );

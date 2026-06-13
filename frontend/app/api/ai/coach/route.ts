@@ -55,7 +55,7 @@ export async function POST(req: Request) {
     );
   }
 
-  const apiKey = process.env.OPENAI_API_KEY;
+  const apiKey = process.env.OPENAI_API_KEY?.trim();
   if (!apiKey) {
     return NextResponse.json(
       { error: "AI features are not configured on this deployment." },
