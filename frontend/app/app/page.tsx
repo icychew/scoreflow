@@ -9,11 +9,21 @@ import {
   transcribeYouTube,
   transcribeSuno,
   uploadStems,
+  SELECTABLE_INSTRUMENTS,
   type Quality,
+  type Instrument,
 } from "@/lib/api";
 
 const YT_HOSTS = ["youtube.com", "youtu.be", "music.youtube.com"];
 const SUNO_HOSTS = ["suno.com", "suno.ai"];
+
+const INSTRUMENT_META: Record<Instrument, { label: string; icon: string }> = {
+  vocals: { label: "Vocals", icon: "🎤" },
+  bass: { label: "Bass", icon: "🎸" },
+  guitar: { label: "Guitar", icon: "🎸" },
+  piano: { label: "Piano", icon: "🎹" },
+  other: { label: "Other", icon: "🎹" },
+};
 
 export default function AppPage() {
   const router = useRouter();
@@ -22,6 +32,21 @@ export default function AppPage() {
   // Refine defaults to true (Pristine mode) — matches the backend default
   const [refine, setRefine] = useState(true);
   const [linkUrl, setLinkUrl] = useState("");
+  // Instrument selection — empty set means "all instruments" (backend default).
+  const [selectedInstruments, setSelectedInstruments] = useState<Set<Instrument>>(new Set());
+
+  const toggleInstrument = (inst: Instrument) => {
+    setSelectedInstruments((prev) => {
+      const next = new Set(prev);
+      if (next.has(inst)) next.delete(inst);
+      else next.add(inst);
+      return next;
+    });
+  };
+
+  // Resolve the selection for the API: empty set → undefined (all instruments).
+  const instrumentsArg = (): Instrument[] | undefined =>
+    selectedInstruments.size > 0 ? Array.from(selectedInstruments) : undefined;
 
   /** Route a pasted link to the right ingestion endpoint by hostname. */
   const handleLink = async () => {
@@ -47,8 +72,8 @@ export default function AppPage() {
     const t = toast.loading(`Fetching audio from ${source}…`, { description: url });
     try {
       const res = isSuno
-        ? await transcribeSuno(url, quality, refine)
-        : await transcribeYouTube(url, quality, refine);
+        ? await transcribeSuno(url, quality, refine, instrumentsArg())
+        : await transcribeYouTube(url, quality, refine, instrumentsArg());
       const title = "title" in res ? (res.title as string | undefined) : undefined;
       await fetch("/api/transcriptions", {
         method: "POST",
@@ -99,7 +124,7 @@ export default function AppPage() {
       description: file.name,
     });
     try {
-      const { job_id } = await uploadAudio(file, quality, refine);
+      const { job_id } = await uploadAudio(file, quality, refine, instrumentsArg());
 
       // Record transcription in DB (usage tracking + dashboard history)
       await fetch("/api/transcriptions", {
@@ -190,6 +215,39 @@ export default function AppPage() {
             : "Fast: skips refinement — quicker but less accurate"}
         </span>
       </div>
+      {/* Instrument selection — empty = all */}
+      <div className="mx-auto w-full max-w-xl flex flex-col items-center gap-2">
+        <span className="text-xs uppercase tracking-widest text-slate-600">
+          Instruments to score
+        </span>
+        <div className="flex flex-wrap justify-center gap-2">
+          {SELECTABLE_INSTRUMENTS.map((inst) => {
+            const active = selectedInstruments.has(inst);
+            return (
+              <button
+                key={inst}
+                type="button"
+                disabled={loading}
+                onClick={() => toggleInstrument(inst)}
+                aria-pressed={active}
+                className={`rounded-full px-3 py-1.5 text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet-500 focus-visible:ring-offset-2 focus-visible:ring-offset-[#09090b] ${
+                  active
+                    ? "bg-violet-600 text-white"
+                    : "border border-slate-600 text-slate-300 hover:border-violet-500 hover:text-violet-300"
+                } ${loading ? "cursor-not-allowed opacity-50" : "cursor-pointer"}`}
+              >
+                {INSTRUMENT_META[inst].icon} {INSTRUMENT_META[inst].label}
+              </button>
+            );
+          })}
+        </div>
+        <span className="text-xs text-slate-500">
+          {selectedInstruments.size === 0
+            ? "All instruments will be scored — tap to pick specific ones"
+            : `Scoring ${selectedInstruments.size} instrument${selectedInstruments.size > 1 ? "s" : ""} (faster). Tap again to deselect.`}
+        </span>
+      </div>
+
       {/* Upload */}
       <UploadZone onUpload={handleUpload} loading={loading} />
 

@@ -118,6 +118,11 @@ export default function MusicXmlViewer({
   // AI practice coach (Pro feature — route enforces the gate)
   const [coachTips, setCoachTips] = useState<string | null>(null);
   const [coachLoading, setCoachLoading] = useState(false);
+  // Synced lyrics (Pro — vocals stem only). Word timestamps drive a karaoke
+  // highlight against the same playback clock as the cursor.
+  const [lyricWords, setLyricWords] = useState<Array<{ word: string; start: number; end: number }> | null>(null);
+  const [lyricsLoading, setLyricsLoading] = useState(false);
+  const [activeWordIdx, setActiveWordIdx] = useState<number>(-1);
   // Playback source: "synth" = Tone.js MIDI playback, "original" = raw audio,
   // "mix" = subscribe to the parent UnifiedPlayer's time source (cursor follows
   // the multi-stem mix being played in ResultsPanel above).
@@ -678,6 +683,74 @@ export default function MusicXmlViewer({
     }
   }, [stem, difficulty, tempoBpm, coachLoading]);
 
+  /** Fetch word-timestamped lyrics for this stem (Pro; vocals only). */
+  const handleGenerateLyrics = useCallback(async () => {
+    if (lyricsLoading) return;
+    setLyricsLoading(true);
+    try {
+      const res = await fetch("/api/ai/lyrics", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ jobId, stem }),
+      });
+      const data = (await res.json()) as {
+        words?: Array<{ word: string; start: number; end: number }>;
+        error?: string;
+        upgrade?: boolean;
+      };
+      if (!res.ok) {
+        if (res.status === 403 && data.upgrade) {
+          toast.error("Synced lyrics are a Pro feature", {
+            description: "Upgrade to Pro to transcribe vocals into karaoke-style lyrics.",
+            action: { label: "See plans", onClick: () => { window.location.href = "/pricing"; } },
+          });
+        } else if (res.status === 401) {
+          toast.error("Sign in to generate lyrics");
+        } else {
+          toast.error("Could not generate lyrics", { description: data.error });
+        }
+        return;
+      }
+      setLyricWords(data.words ?? []);
+      toast.success("Lyrics ready", { description: "They'll highlight as the track plays." });
+    } catch (err) {
+      toast.error("Could not generate lyrics", {
+        description: err instanceof Error ? err.message : "Network error",
+      });
+    } finally {
+      setLyricsLoading(false);
+    }
+  }, [jobId, stem, lyricsLoading]);
+
+  // Karaoke highlight: advance the active word against the shared playback clock.
+  // Whisper word timestamps are in real-recording seconds, so they only line up
+  // with the "original" and "mix" clocks. In "synth" mode the Tone.Transport
+  // clock runs at the user's tempo over the quantized MIDI timeline — a
+  // different time base — so we don't highlight there (avoids visible drift),
+  // and skipping the rAF loop in the default synth mode also avoids idle CPU.
+  useEffect(() => {
+    if (!lyricWords || lyricWords.length === 0) return;
+    if (playbackMode === "synth") {
+      setActiveWordIdx(-1);
+      return;
+    }
+    let raf: number | null = null;
+    const tick = () => {
+      const t = getCurrentSeconds();
+      // Find the last word whose start <= t (linear is fine for typical lyric counts)
+      let idx = -1;
+      for (let i = 0; i < lyricWords.length; i++) {
+        if (lyricWords[i].start <= t) idx = i;
+        else break;
+      }
+      setActiveWordIdx((prev) => (prev !== idx ? idx : prev));
+      raf = requestAnimationFrame(tick);
+    };
+    raf = requestAnimationFrame(tick);
+    return () => { if (raf !== null) cancelAnimationFrame(raf); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [lyricWords, playbackMode]);
+
   /** Toggle edit mode on/off. Clears selection when exiting. */
   const handleToggleEditMode = useCallback(() => {
     setIsEditMode((prev) => {
@@ -976,6 +1049,19 @@ export default function MusicXmlViewer({
             </button>
           )}
 
+          {/* Synced lyrics — Pro, vocals stem only */}
+          {!readOnly && stem === "vocals" && (
+            <button
+              type="button"
+              onClick={handleGenerateLyrics}
+              disabled={lyricsLoading}
+              className="flex items-center gap-1.5 rounded-md border border-violet-300 bg-violet-50 px-3 py-1.5 text-xs font-semibold text-violet-800 hover:bg-violet-100 disabled:opacity-60 disabled:cursor-not-allowed transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet-500 focus-visible:ring-offset-1 focus-visible:ring-offset-slate-50"
+              title="Transcribe the vocals into karaoke-style synced lyrics (Pro)"
+            >
+              {lyricsLoading ? "Transcribing…" : "🎤 Synced lyrics"}
+            </button>
+          )}
+
           {/* Editor — only on the "hard" (canonical) difficulty + non-read-only */}
           {difficulty === "hard" && !readOnly && (
             <>
@@ -1205,6 +1291,46 @@ export default function MusicXmlViewer({
             <span className="text-xs text-red-600 basis-full">⚠ {playError}</span>
           )}
           </>
+          )}
+
+          {/* Karaoke lyrics strip — highlights the current word during playback */}
+          {lyricWords && lyricWords.length > 0 && (
+            <div className="basis-full rounded-md border border-violet-200 bg-white px-4 py-3">
+              <div className="flex items-center justify-between mb-2">
+                <h4 className="text-xs font-semibold uppercase tracking-widest text-violet-700">
+                  🎤 Synced lyrics
+                </h4>
+                <button
+                  type="button"
+                  aria-label="Dismiss lyrics"
+                  onClick={() => { setLyricWords(null); setActiveWordIdx(-1); }}
+                  className="text-violet-400 hover:text-violet-700 text-base leading-none"
+                >
+                  ×
+                </button>
+              </div>
+              <p className="text-sm leading-relaxed">
+                {lyricWords.map((w, i) => (
+                  <span
+                    key={i}
+                    className={
+                      i === activeWordIdx
+                        ? "bg-violet-600 text-white rounded px-0.5"
+                        : i < activeWordIdx
+                          ? "text-slate-400"
+                          : "text-slate-800"
+                    }
+                  >
+                    {w.word}{" "}
+                  </span>
+                ))}
+              </p>
+              <p className="mt-2 text-xs text-slate-400">
+                {playbackMode === "synth"
+                  ? "Switch to Original or Mix playback to follow the words in time — lyric timing tracks the real recording, not the synth."
+                  : "Press ▶ (or the Mix Player) to follow along."}
+              </p>
+            </div>
           )}
 
           {/* AI coach tips panel */}

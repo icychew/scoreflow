@@ -177,6 +177,7 @@ def run_pipeline(
     quality: str = "standard",
     refine: bool = False,
     precomputed_stems: dict[str, Path] | None = None,
+    selected_stems: list[str] | None = None,
 ) -> PipelineResult:
     """Run the full audio-to-score pipeline.
 
@@ -196,10 +197,16 @@ def run_pipeline(
             provided, Demucs separation is SKIPPED and these files are transcribed
             directly. Used for Suno stem exports / DAW bounces, where the audio is
             already separated and re-separating would only add artifacts.
+        selected_stems: Optional list of stem names the user wants scored (e.g.
+            ["piano", "vocals"]). When set, separation still produces all stems
+            (Demucs is one pass) but transcription/quantization/scoring runs only
+            for the selected ones — faster, focused output. None = all stems.
 
     Returns:
         PipelineResult with paths to all generated outputs and per-stem reports.
     """
+    # Normalize the selection to a set for O(1) membership; empty/None → all.
+    selected_set = {s.lower() for s in selected_stems} if selected_stems else None
     start_time = time.monotonic()
 
     stems_dir = output_dir / "stems"
@@ -257,6 +264,13 @@ def run_pipeline(
 
     # Stages 2-4: Per-stem processing
     for stem_name, stem_path in result.stems.items():
+        # Instrument selection: skip stems the user didn't ask for. Separation
+        # already ran (single Demucs pass), so this saves the expensive
+        # transcribe→quantize→score work for unwanted instruments.
+        if selected_set is not None and stem_name.lower() not in selected_set:
+            logger.info("Skipping '%s' — not in selected instruments", stem_name)
+            continue
+
         report = StemReport(stem_name=stem_name)
         report.stages.append(StageStatus(
             stage="separation",

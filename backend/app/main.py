@@ -98,6 +98,23 @@ def _count_midi_notes_approx(midi_path: Path) -> int:
 
 STAGE_NAMES = ["separation", "transcription", "quantization", "score_generation", "refinement"]
 
+# Instruments the pipeline can score (drums excluded — percussion has no pitch).
+_SELECTABLE_STEMS = {"vocals", "bass", "guitar", "piano", "other"}
+
+
+def _parse_selected_stems(raw: str | None) -> list[str] | None:
+    """Parse a comma-separated `stems` form value into a validated list.
+
+    Returns None (= all stems) when empty/unset. Unknown names are dropped;
+    if nothing valid remains, returns None rather than an empty selection so a
+    malformed request still produces a full transcription instead of nothing.
+    """
+    if not raw:
+        return None
+    names = [s.strip().lower() for s in raw.split(",") if s.strip()]
+    valid = [n for n in names if n in _SELECTABLE_STEMS]
+    return valid or None
+
 
 def _run_pipeline_thread(
     job_id: str,
@@ -105,11 +122,13 @@ def _run_pipeline_thread(
     quality: str = "standard",
     refine: bool = False,
     stem_paths: dict[str, Path] | None = None,
+    selected_stems: list[str] | None = None,
 ) -> None:
     """Execute the pipeline in a background thread, updating job state.
 
     When stem_paths is provided, Demucs separation is skipped and those
     pre-separated tracks are transcribed directly (Suno stem export / DAW bounce).
+    When selected_stems is provided, only those instruments are transcribed.
     """
     from pipeline.pipeline import run_pipeline
     from pipeline.quantizer import QuantizationConfig
@@ -162,6 +181,7 @@ def _run_pipeline_thread(
             quality=quality,
             refine=refine,
             precomputed_stems=stem_paths,
+            selected_stems=selected_stems,
         )
 
         # Map pipeline result stages to our stage tracking
@@ -291,15 +311,20 @@ async def create_job(
     file: UploadFile = File(...),
     quality: str = Form("standard"),
     refine: bool = Form(True),  # Lever 3 in accuracy plan — chroma refinement default-on
+    stems: str = Form(""),      # comma-separated instrument selection; empty = all
 ) -> dict[str, Any]:
     """Upload an audio file and start pipeline processing.
 
     quality: 'standard' (Demucs + Basic Pitch) or 'high' (BS-RoFormer + piano_transcription).
     refine: If True (default), run chroma-based refinement loop after score
             generation. Pass `refine=false` in the form to opt out for speed.
+    stems: Optional comma-separated instruments to score (vocals,bass,guitar,
+           piano,other). Empty = all. Separation still runs once; only the
+           selected instruments are transcribed.
     """
     if quality not in ("standard", "high"):
         quality = "standard"
+    selected = _parse_selected_stems(stems)
     suffix = Path(file.filename or "").suffix.lower()
     if suffix not in ALLOWED_EXTENSIONS:
         raise HTTPException(
@@ -326,6 +351,7 @@ async def create_job(
     thread = threading.Thread(
         target=_run_pipeline_thread,
         args=(job_id, audio_path, quality, refine),
+        kwargs={"selected_stems": selected},
         daemon=True,
         name=f"pipeline-{job_id[:8]}",
     )
@@ -343,6 +369,7 @@ def create_job_from_youtube(
     url: str = Form(...),
     quality: str = Form("standard"),
     refine: bool = Form(True),
+    stems: str = Form(""),
 ) -> dict[str, Any]:
     """Start a transcription job from a YouTube link.
 
@@ -367,6 +394,7 @@ def create_job_from_youtube(
 
     if quality not in ("standard", "high"):
         quality = "standard"
+    selected = _parse_selected_stems(stems)
 
     job_id = str(uuid.uuid4())
     job_dir = JOBS_DIR / job_id
@@ -409,6 +437,7 @@ def create_job_from_youtube(
     thread = threading.Thread(
         target=_run_pipeline_thread,
         args=(job_id, audio_path, quality, refine),
+        kwargs={"selected_stems": selected},
         daemon=True,
         name=f"pipeline-{job_id[:8]}",
     )
@@ -437,6 +466,7 @@ def create_job_from_suno(
     url: str = Form(...),
     quality: str = Form("standard"),
     refine: bool = Form(True),
+    stems: str = Form(""),
 ) -> dict[str, Any]:
     """Start a transcription job from a Suno song link.
 
@@ -466,6 +496,7 @@ def create_job_from_suno(
 
     if quality not in ("standard", "high"):
         quality = "standard"
+    selected = _parse_selected_stems(stems)
 
     job_id = str(uuid.uuid4())
     job_dir = JOBS_DIR / job_id
@@ -516,6 +547,7 @@ def create_job_from_suno(
     thread = threading.Thread(
         target=_run_pipeline_thread,
         args=(job_id, audio_path, quality, refine),
+        kwargs={"selected_stems": selected},
         daemon=True,
         name=f"pipeline-{job_id[:8]}",
     )

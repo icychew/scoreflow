@@ -30,15 +30,26 @@ export interface JobState {
 
 export type Quality = "standard" | "high";
 
+/** Instruments the pipeline can score. Drums excluded (no pitch). */
+export const SELECTABLE_INSTRUMENTS = ["vocals", "bass", "guitar", "piano", "other"] as const;
+export type Instrument = (typeof SELECTABLE_INSTRUMENTS)[number];
+
+/** Join selected instruments into the backend's comma-separated `stems` form value. */
+function stemsField(stems?: Instrument[]): string {
+  return stems && stems.length > 0 ? stems.join(",") : "";
+}
+
 export async function uploadAudio(
   file: File,
   quality: Quality = "standard",
   refine: boolean = false,
+  stems?: Instrument[],
 ): Promise<{ job_id: string; status: string }> {
   const form = new FormData();
   form.append("file", file);
   form.append("quality", quality);
   form.append("refine", refine ? "true" : "false");
+  form.append("stems", stemsField(stems));
   const res = await fetch(`${API_URL}/api/jobs`, {
     method: "POST",
     body: form,
@@ -56,11 +67,13 @@ export async function transcribeYouTube(
   url: string,
   quality: Quality = "standard",
   refine: boolean = true,
+  stems?: Instrument[],
 ): Promise<{ job_id: string; status: string; title?: string | null }> {
   const form = new FormData();
   form.append("url", url);
   form.append("quality", quality);
   form.append("refine", refine ? "true" : "false");
+  form.append("stems", stemsField(stems));
   const res = await fetch(`${API_URL}/api/jobs/youtube`, {
     method: "POST",
     body: form,
@@ -78,11 +91,13 @@ export async function transcribeSuno(
   url: string,
   quality: Quality = "standard",
   refine: boolean = true,
+  stems?: Instrument[],
 ): Promise<{ job_id: string; status: string }> {
   const form = new FormData();
   form.append("url", url);
   form.append("quality", quality);
   form.append("refine", refine ? "true" : "false");
+  form.append("stems", stemsField(stems));
   const res = await fetch(`${API_URL}/api/jobs/suno`, {
     method: "POST",
     body: form,
