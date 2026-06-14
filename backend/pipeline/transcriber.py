@@ -92,6 +92,14 @@ OTHER_CONFIG = TranscriptionConfig(
     maximum_frequency=2000.0,
 )
 
+# A stem that transcribes to fewer than this many notes is almost always a
+# soft / quiet / melismatic source the conservative per-stem thresholds
+# under-detect (breathy lead vocals are the classic case). When the first pass
+# lands below this floor, transcribe() runs ONE relaxed "rescue" pass and keeps
+# whichever result has more notes. It only fires for stems that would otherwise
+# be dropped as empty, so it cannot add false notes to stems that already work.
+RESCUE_NOTE_FLOOR = 14
+
 DEFAULT_CONFIG = TranscriptionConfig()
 
 
@@ -331,21 +339,56 @@ def transcribe(
     start_time = time.monotonic()
     audio_duration = _get_audio_duration(input_path)
 
+    def _run_predict(cfg: TranscriptionConfig):
+        _, midi, _ = predict(
+            str(input_path),
+            onset_threshold=cfg.onset_threshold,
+            frame_threshold=cfg.frame_threshold,
+            minimum_note_length=cfg.minimum_note_length,
+            minimum_frequency=cfg.minimum_frequency,
+            maximum_frequency=cfg.maximum_frequency,
+            midi_tempo=cfg.midi_tempo,
+        )
+        return midi, _count_midi_notes(midi)
+
     # Run Basic Pitch inference
     try:
-        model_output, midi_data, note_events = predict(
-            str(input_path),
-            onset_threshold=config.onset_threshold,
-            frame_threshold=config.frame_threshold,
-            minimum_note_length=config.minimum_note_length,
-            minimum_frequency=config.minimum_frequency,
-            maximum_frequency=config.maximum_frequency,
-            midi_tempo=config.midi_tempo,
-        )
+        midi_data, note_count = _run_predict(config)
     except Exception as exc:
         raise TranscriptionError(
             f"Basic Pitch transcription failed for '{input_path.name}': {exc}"
         ) from exc
+
+    # Adaptive rescue: if the stem landed below the readable-note floor, retry
+    # ONCE with relaxed thresholds (lower onset/frame, shorter min-note). Keep
+    # the relaxed result only if it detects more notes. This salvages soft /
+    # quiet stems that the conservative defaults under-detect, turning an empty
+    # score into a usable one, without affecting stems that already transcribe.
+    rescued = False
+    if note_count < RESCUE_NOTE_FLOOR:
+        relaxed = TranscriptionConfig(
+            onset_threshold=max(0.2, round(config.onset_threshold * 0.6, 3)),
+            frame_threshold=max(0.15, round(config.frame_threshold * 0.6, 3)),
+            minimum_note_length=max(40.0, config.minimum_note_length * 0.6),
+            minimum_frequency=config.minimum_frequency,
+            maximum_frequency=config.maximum_frequency,
+            midi_tempo=config.midi_tempo,
+        )
+        logger.info(
+            "Rescue pass for '%s': %d notes at onset=%.2f — retrying at "
+            "onset=%.2f, frame=%.2f, min_note=%.0fms",
+            stem_name or input_path.name, note_count, config.onset_threshold,
+            relaxed.onset_threshold, relaxed.frame_threshold,
+            relaxed.minimum_note_length,
+        )
+        try:
+            r_midi, r_count = _run_predict(relaxed)
+            if r_count > note_count:
+                midi_data, note_count, config, rescued = r_midi, r_count, relaxed, True
+        except Exception as exc:
+            logger.warning(
+                "Rescue pass failed for '%s': %s", stem_name or input_path.name, exc
+            )
 
     # Save MIDI output
     output_path.parent.mkdir(parents=True, exist_ok=True)
@@ -356,13 +399,13 @@ def transcribe(
             f"Failed to write MIDI file to '{output_path}': {exc}"
         ) from exc
 
-    note_count = _count_midi_notes(midi_data)
     processing_time = time.monotonic() - start_time
 
     logger.info(
-        "Transcription complete: notes=%d, duration=%.1fs, "
+        "Transcription complete: notes=%d%s, duration=%.1fs, "
         "processing_time=%.1fs, output='%s'",
         note_count,
+        " (rescued)" if rescued else "",
         audio_duration,
         processing_time,
         output_path,
