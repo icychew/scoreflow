@@ -1,4 +1,4 @@
-import { db } from "@/lib/db";
+import { convex, api, CONVEX_SECRET } from "@/lib/convex";
 import { pollJob } from "@/lib/api";
 import Link from "next/link";
 import type { Metadata } from "next";
@@ -33,41 +33,34 @@ interface TranscriptionRow {
 export default async function SharePage({ params }: PageProps) {
   const { token } = await params;
 
-  const { data: share } = await db
-    .from("transcription_shares")
-    .select("*")
-    .eq("token", token)
-    .maybeSingle();
+  const shareRow = (await convex
+    .query(api.shares.getByToken, { secret: CONVEX_SECRET, token })
+    .catch(() => null)) as ShareRow | null;
 
-  if (!share) return <NotFoundPanel reason="This share link is invalid." />;
+  if (!shareRow) return <NotFoundPanel reason="This share link is invalid." />;
 
-  const shareRow = share as ShareRow;
   if (shareRow.expires_at && new Date(shareRow.expires_at) < new Date()) {
     return <NotFoundPanel reason="This share link has expired." />;
   }
 
   // Increment view count (best-effort, don't block render on failure)
-  db.from("transcription_shares")
-    .update({ view_count: shareRow.view_count + 1 })
-    .eq("token", token)
-    .then((res: { error: { message: string } | null }) => {
-      if (res.error) console.error("[share] view_count bump:", res.error);
-    });
+  convex
+    .mutation(api.shares.incrementViewCount, { secret: CONVEX_SECRET, token })
+    .catch((err) => console.error("[share] view_count bump:", err));
 
   // Resolve the transcription metadata + the live job state from the pipeline
-  const [transcriptionRes, jobState] = await Promise.all([
-    db
-      .from("transcriptions")
-      .select("id, job_id, filename, title, status, created_at")
-      .eq("id", shareRow.transcription_id)
-      .maybeSingle(),
+  const [transcription, jobState] = await Promise.all([
+    convex
+      .query(api.transcriptions.getById, {
+        secret: CONVEX_SECRET,
+        id: shareRow.transcription_id,
+      })
+      .catch(() => null) as Promise<TranscriptionRow | null>,
     pollJob(shareRow.job_id).catch((err) => {
       console.error("[share] pollJob failed:", err);
       return null;
     }),
   ]);
-
-  const transcription = transcriptionRes.data as TranscriptionRow | null;
 
   if (!jobState || jobState.status !== "done") {
     return (

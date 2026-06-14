@@ -1,5 +1,5 @@
 import { createHash, randomBytes } from "node:crypto";
-import { db } from "@/lib/db";
+import { convex, api, CONVEX_SECRET } from "@/lib/convex";
 
 /**
  * API key format: nta_<24 random base64url chars>
@@ -64,12 +64,13 @@ export async function authenticateApiRequest(
 
   const hash = hashKey(plaintext);
 
-  const { data: keyRow, error: keyErr } = await db
-    .from("api_keys")
-    .select("id, user_id, revoked_at")
-    .eq("key_hash", hash)
-    .maybeSingle();
-  if (keyErr) {
+  let keyRow: { id: string; user_id: string; revoked_at: string | null } | null;
+  try {
+    keyRow = await convex.query(api.apiKeys.lookupByHash, {
+      secret: CONVEX_SECRET,
+      keyHash: hash,
+    });
+  } catch (keyErr) {
     console.error("[apiAuth] key lookup failed:", keyErr);
     return { ok: false, status: 401, error: "Authentication error." };
   }
@@ -78,12 +79,13 @@ export async function authenticateApiRequest(
   }
 
   // Resolve user tier — only `business` is allowed to use the v1 API.
-  const { data: userRow, error: userErr } = await db
-    .from("users")
-    .select("tier, email")
-    .eq("id", keyRow.user_id)
-    .single();
-  if (userErr || !userRow) {
+  const userRow = await convex
+    .query(api.users.getTierAndEmail, {
+      secret: CONVEX_SECRET,
+      userId: keyRow.user_id,
+    })
+    .catch(() => null);
+  if (!userRow) {
     return { ok: false, status: 401, error: "User not found." };
   }
 
@@ -97,12 +99,12 @@ export async function authenticateApiRequest(
   }
 
   // Best-effort last_used_at update; don't await
-  db.from("api_keys")
-    .update({ last_used_at: new Date().toISOString() })
-    .eq("id", keyRow.id)
-    .then((res: { error: { message: string } | null }) => {
-      if (res.error) console.error("[apiAuth] last_used_at:", res.error);
-    });
+  convex
+    .mutation(api.apiKeys.touchLastUsed, {
+      secret: CONVEX_SECRET,
+      id: keyRow.id,
+    })
+    .catch((err) => console.error("[apiAuth] last_used_at:", err));
 
   return {
     ok: true,

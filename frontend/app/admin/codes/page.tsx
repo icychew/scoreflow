@@ -1,6 +1,6 @@
 import { redirect } from "next/navigation";
 import Link from "next/link";
-import { db } from "@/lib/db";
+import { convex, api, CONVEX_SECRET } from "@/lib/convex";
 import { auth } from "@/lib/auth";
 import { isAdmin } from "@/lib/comp";
 import CreateCodeForm from "./CreateCodeForm";
@@ -33,13 +33,10 @@ export default async function AdminCodesPage() {
     );
   }
 
-  const { data: codes } = await db
-    .from("comp_codes")
-    .select("*")
-    .order("created_at", { ascending: false })
-    .limit(100);
-
-  const list = (codes ?? []) as CompCodeRow[];
+  const list = (await convex.query(api.compCodes.list, {
+    secret: CONVEX_SECRET,
+    limit: 100,
+  })) as CompCodeRow[];
 
   return (
     <div className="mx-auto max-w-4xl px-4 sm:px-6 py-10">

@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
-import { db } from "@/lib/db";
+import { convex, api, CONVEX_SECRET } from "@/lib/convex";
 
 /**
  * POST /api/redeem  { code: string }
@@ -32,13 +32,13 @@ export async function POST(req: Request) {
   }
 
   // Look up code
-  const { data: comp, error: lookupErr } = await db
-    .from("comp_codes")
-    .select("code, tier, max_uses, used_count, expires_at")
-    .eq("code", code)
-    .maybeSingle();
-
-  if (lookupErr) {
+  let comp;
+  try {
+    comp = await convex.query(api.compCodes.getByCode, {
+      secret: CONVEX_SECRET,
+      code,
+    });
+  } catch (lookupErr) {
     console.error("[redeem] lookup error:", lookupErr);
     return NextResponse.json({ error: "Server error" }, { status: 500 });
   }
@@ -58,27 +58,30 @@ export async function POST(req: Request) {
   }
 
   // Insert redemption (UNIQUE constraint prevents double-redeem by same user)
-  const { error: redeemErr } = await db
-    .from("comp_code_redemptions")
-    .insert({ code, user_id: session.user.id });
-  if (redeemErr) {
-    // Postgres unique violation = 23505
-    if ((redeemErr as { code?: string }).code === "23505") {
-      return NextResponse.json(
-        { error: "You have already redeemed this code." },
-        { status: 409 },
-      );
-    }
+  let redeemResult: "inserted" | "duplicate";
+  try {
+    redeemResult = await convex.mutation(api.compCodes.tryInsertRedemption, {
+      secret: CONVEX_SECRET,
+      code,
+      userId: session.user.id,
+    });
+  } catch (redeemErr) {
     console.error("[redeem] insert error:", redeemErr);
     return NextResponse.json({ error: "Server error" }, { status: 500 });
+  }
+  if (redeemResult === "duplicate") {
+    return NextResponse.json(
+      { error: "You have already redeemed this code." },
+      { status: 409 },
+    );
   }
 
   // Increment used_count and grant tier (only if it's an upgrade)
   await Promise.all([
-    db
-      .from("comp_codes")
-      .update({ used_count: (comp.used_count as number) + 1 })
-      .eq("code", code),
+    convex.mutation(api.compCodes.incrementUsedCount, {
+      secret: CONVEX_SECRET,
+      code,
+    }),
     upgradeUserIfBetter(session.user.id, comp.tier as "pro" | "business"),
   ]);
 
@@ -87,11 +90,10 @@ export async function POST(req: Request) {
 
 async function upgradeUserIfBetter(userId: string, newTier: "pro" | "business") {
   const rank = { free: 0, pro: 1, business: 2 } as const;
-  const { data } = await db
-    .from("users")
-    .select("tier, tier_source")
-    .eq("id", userId)
-    .single();
+  const data = await convex.query(api.users.getTierSource, {
+    secret: CONVEX_SECRET,
+    userId,
+  });
   if (!data) return;
 
   const current = (data.tier ?? "free") as keyof typeof rank;
@@ -99,8 +101,10 @@ async function upgradeUserIfBetter(userId: string, newTier: "pro" | "business") 
   // downgrade them by redeeming a Pro comp code; only upgrade for Business.
   if (rank[newTier] <= rank[current]) return;
 
-  await db
-    .from("users")
-    .update({ tier: newTier, tier_source: "comp_code" })
-    .eq("id", userId);
+  await convex.mutation(api.users.setTierBySource, {
+    secret: CONVEX_SECRET,
+    userId,
+    tier: newTier,
+    tierSource: "comp_code",
+  });
 }

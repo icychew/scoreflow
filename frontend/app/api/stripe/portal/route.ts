@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { stripe } from "@/lib/stripe";
-import { db } from "@/lib/db";
+import { convex, api, CONVEX_SECRET } from "@/lib/convex";
 
 export async function POST() {
   const session = await auth();
@@ -9,19 +9,18 @@ export async function POST() {
     return NextResponse.json({ error: "Not authenticated" }, { status: 401 });
   }
 
-  const { data: user } = await db
-    .from("users")
-    .select("stripe_customer_id")
-    .eq("id", session.user.id)
-    .single();
+  const customerId = await convex.query(api.users.getStripeCustomerId, {
+    secret: CONVEX_SECRET,
+    userId: session.user.id,
+  });
 
-  if (!user?.stripe_customer_id) {
+  if (!customerId) {
     return NextResponse.json({ error: "No billing account" }, { status: 400 });
   }
 
   try {
     const portalSession = await stripe.billingPortal.sessions.create({
-      customer: user.stripe_customer_id as string,
+      customer: customerId,
       return_url: `${process.env.NEXTAUTH_URL?.trim()}/dashboard`,
     });
 

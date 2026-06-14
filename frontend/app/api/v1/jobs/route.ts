@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { authenticateApiRequest } from "@/lib/apiAuth";
-import { db } from "@/lib/db";
+import { convex, api, CONVEX_SECRET } from "@/lib/convex";
 
 const PUBLIC_BASE =
   process.env.NEXT_PUBLIC_APP_URL?.trim() ||
@@ -31,22 +31,32 @@ export async function GET(req: Request) {
   const offset = Math.max(0, Number(url.searchParams.get("offset")) || 0);
   const status = url.searchParams.get("status");
 
-  let query = db
-    .from("transcriptions")
-    .select("id, job_id, filename, title, status, created_at", { count: "exact" })
-    .eq("user_id", result.auth.userId)
-    .order("created_at", { ascending: false })
-    .range(offset, offset + limit - 1);
-  if (status) query = query.eq("status", status);
-
-  const { data, count, error } = await query;
-  if (error) {
+  let data: Array<{
+    id: string;
+    job_id: string;
+    filename: string | null;
+    title: string | null;
+    status: string;
+    created_at: string;
+  }>;
+  let count: number;
+  try {
+    const res = await convex.query(api.transcriptions.listByUserPaged, {
+      secret: CONVEX_SECRET,
+      userId: result.auth.userId,
+      limit,
+      offset,
+      status: status ?? undefined,
+    });
+    data = res.jobs;
+    count = res.total;
+  } catch (error) {
     console.error("[GET /api/v1/jobs] failed:", error);
     return NextResponse.json({ error: "Server error" }, { status: 500 });
   }
 
   return NextResponse.json({
-    jobs: (data ?? []).map((j) => ({
+    jobs: data.map((j) => ({
       id: j.id,
       job_id: j.job_id,
       filename: j.filename,
@@ -111,11 +121,11 @@ export async function POST(req: Request) {
   const jobId = payload.job_id as string;
 
   // Record in DB so it shows up in dashboard + GET /api/v1/jobs
-  await db.from("transcriptions").insert({
-    user_id: result.auth.userId,
-    job_id: jobId,
+  await convex.mutation(api.transcriptions.record, {
+    secret: CONVEX_SECRET,
+    userId: result.auth.userId,
+    jobId,
     filename: file.name,
-    status: "processing",
   });
 
   return NextResponse.json(

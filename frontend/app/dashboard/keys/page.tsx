@@ -1,6 +1,6 @@
 import { auth } from "@/lib/auth";
 import { redirect } from "next/navigation";
-import { db } from "@/lib/db";
+import { convex, api, CONVEX_SECRET } from "@/lib/convex";
 import Link from "next/link";
 import KeysClient from "./KeysClient";
 
@@ -23,12 +23,10 @@ export default async function KeysPage() {
 
   let keys: KeyRow[] = [];
   if (isBusiness) {
-    const { data } = await db
-      .from("api_keys")
-      .select("id, key_prefix, name, last_used_at, created_at, revoked_at")
-      .eq("user_id", session.user.id)
-      .order("created_at", { ascending: false });
-    keys = (data ?? []) as KeyRow[];
+    keys = (await convex.query(api.apiKeys.listByUser, {
+      secret: CONVEX_SECRET,
+      userId: session.user.id,
+    })) as KeyRow[];
   }
 
   return (

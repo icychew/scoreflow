@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { stripe } from "@/lib/stripe";
-import { db } from "@/lib/db";
+import { convex, api, CONVEX_SECRET } from "@/lib/convex";
 import type Stripe from "stripe";
 
 async function setUserTier(
@@ -10,18 +10,12 @@ async function setUserTier(
 ) {
   // tier_source = 'stripe' so the auth signIn callback doesn't touch this row
   // even if the user's email is in (or absent from) a comp allowlist.
-  const { error } = await db
-    .from("users")
-    .update({
-      tier,
-      tier_source: "stripe",
-      stripe_subscription_id: subscriptionId ?? null,
-    })
-    .eq("stripe_customer_id", customerId);
-
-  if (error) {
-    throw error;
-  }
+  await convex.mutation(api.users.setTierByStripeCustomer, {
+    secret: CONVEX_SECRET,
+    stripeCustomerId: customerId,
+    tier,
+    subscriptionId,
+  });
 }
 
 function priceIdToTier(priceId: string): "pro" | "business" {

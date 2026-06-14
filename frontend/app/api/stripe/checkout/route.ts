@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { stripe } from "@/lib/stripe";
-import { db } from "@/lib/db";
+import { convex, api, CONVEX_SECRET } from "@/lib/convex";
 
 export async function POST(req: NextRequest) {
   const session = await auth();
@@ -28,23 +28,22 @@ export async function POST(req: NextRequest) {
 
   try {
     // Get or create Stripe customer
-    const { data: user } = await db
-      .from("users")
-      .select("stripe_customer_id")
-      .eq("id", session.user.id)
-      .single();
-
-    let customerId = user?.stripe_customer_id as string | undefined;
+    let customerId =
+      (await convex.query(api.users.getStripeCustomerId, {
+        secret: CONVEX_SECRET,
+        userId: session.user.id,
+      })) ?? undefined;
     if (!customerId) {
       const customer = await stripe.customers.create({
         email: session.user.email,
         metadata: { songscore_user_id: session.user.id },
       });
       customerId = customer.id;
-      await db
-        .from("users")
-        .update({ stripe_customer_id: customerId })
-        .eq("id", session.user.id);
+      await convex.mutation(api.users.setStripeCustomerId, {
+        secret: CONVEX_SECRET,
+        userId: session.user.id,
+        stripeCustomerId: customerId,
+      });
     }
 
     const checkoutSession = await stripe.checkout.sessions.create({

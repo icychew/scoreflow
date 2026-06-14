@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
-import { db } from "@/lib/db";
+import { convex, api, CONVEX_SECRET } from "@/lib/convex";
 import { generateApiKey } from "@/lib/apiAuth";
 
 const MAX_KEYS_PER_USER = 10;
@@ -15,17 +15,16 @@ export async function GET() {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const { data, error } = await db
-    .from("api_keys")
-    .select("id, key_prefix, name, last_used_at, created_at, revoked_at")
-    .eq("user_id", session.user.id)
-    .order("created_at", { ascending: false });
-
-  if (error) {
+  try {
+    const keys = await convex.query(api.apiKeys.listByUser, {
+      secret: CONVEX_SECRET,
+      userId: session.user.id,
+    });
+    return NextResponse.json({ keys });
+  } catch (error) {
     console.error("[GET /api/keys]:", error);
     return NextResponse.json({ error: "Server error" }, { status: 500 });
   }
-  return NextResponse.json({ keys: data ?? [] });
 }
 
 /**
@@ -49,12 +48,11 @@ export async function POST(req: Request) {
   }
 
   // Cap to prevent abuse
-  const { count } = await db
-    .from("api_keys")
-    .select("id", { count: "exact", head: true })
-    .eq("user_id", session.user.id)
-    .is("revoked_at", null);
-  if ((count ?? 0) >= MAX_KEYS_PER_USER) {
+  const count = await convex.query(api.apiKeys.countActiveByUser, {
+    secret: CONVEX_SECRET,
+    userId: session.user.id,
+  });
+  if (count >= MAX_KEYS_PER_USER) {
     return NextResponse.json(
       { error: `You already have ${MAX_KEYS_PER_USER} active keys; revoke one first.` },
       { status: 400 },
@@ -76,18 +74,16 @@ export async function POST(req: Request) {
   }
 
   const { plaintext, hash, prefix } = generateApiKey();
-  const { data, error } = await db
-    .from("api_keys")
-    .insert({
-      user_id: session.user.id,
-      key_hash: hash,
-      key_prefix: prefix,
+  let data: { id: string; key_prefix: string; name: string; created_at: string };
+  try {
+    data = await convex.mutation(api.apiKeys.create, {
+      secret: CONVEX_SECRET,
+      userId: session.user.id,
+      keyHash: hash,
+      keyPrefix: prefix,
       name,
-    })
-    .select("id, key_prefix, name, created_at")
-    .single();
-
-  if (error || !data) {
+    });
+  } catch (error) {
     console.error("[POST /api/keys]:", error);
     return NextResponse.json({ error: "Server error" }, { status: 500 });
   }
@@ -115,13 +111,13 @@ export async function DELETE(req: Request) {
     return NextResponse.json({ error: "Missing ?id=" }, { status: 400 });
   }
 
-  const { error } = await db
-    .from("api_keys")
-    .update({ revoked_at: new Date().toISOString() })
-    .eq("id", id)
-    .eq("user_id", session.user.id); // ownership guard
-
-  if (error) {
+  try {
+    await convex.mutation(api.apiKeys.revoke, {
+      secret: CONVEX_SECRET,
+      id,
+      userId: session.user.id, // ownership guard enforced server-side
+    });
+  } catch (error) {
     console.error("[DELETE /api/keys]:", error);
     return NextResponse.json({ error: "Server error" }, { status: 500 });
   }

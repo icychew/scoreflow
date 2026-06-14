@@ -1,6 +1,6 @@
 import NextAuth from "next-auth";
 import Google from "next-auth/providers/google";
-import { db } from "@/lib/db";
+import { convex, api, CONVEX_SECRET } from "@/lib/convex";
 import { getCompTier } from "@/lib/comp";
 
 if (!process.env.GOOGLE_CLIENT_ID) throw new Error("Missing GOOGLE_CLIENT_ID");
@@ -20,64 +20,70 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
       if (!user.email) return false;
       const userId = user.id ?? user.email;
 
-      // Step 1: ensure the user row exists. Don't touch tier here — that's
-      // managed by step 2 below using tier_source as the policy lever.
-      const { error: upsertErr } = await db
-        .from("users")
-        .upsert({ id: userId, email: user.email }, { onConflict: "id", ignoreDuplicates: false });
-      if (upsertErr) {
-        console.error("[auth] Failed to upsert user:", upsertErr);
+      try {
+        // Step 1: ensure the user row exists. Don't touch tier here — that's
+        // managed by step 2 below using tier_source as the policy lever.
+        await convex.mutation(api.users.upsertUser, {
+          secret: CONVEX_SECRET,
+          userId,
+          email: user.email,
+        });
+
+        // Step 2: read current tier_source so we know what we may overwrite.
+        // - `default` or `comp_email` → safe to overwrite from env allowlist
+        // - `stripe` or `comp_code` → don't touch; those have their own lifecycles
+        const existing = await convex.query(api.users.getTierSource, {
+          secret: CONVEX_SECRET,
+          userId,
+        });
+
+        const compTier = getCompTier(user.email);
+        const currentSource = (existing?.tier_source ?? "default") as
+          | "default"
+          | "comp_email"
+          | "comp_code"
+          | "stripe";
+
+        if (compTier) {
+          // Email is in allowlist → grant comp tier (overrides default/comp_email).
+          // Don't override stripe or comp_code; those are stronger.
+          if (currentSource === "default" || currentSource === "comp_email") {
+            await convex.mutation(api.users.setTierBySource, {
+              secret: CONVEX_SECRET,
+              userId,
+              tier: compTier,
+              tierSource: "comp_email",
+            });
+          }
+        } else if (currentSource === "comp_email") {
+          // Email was previously in allowlist but isn't anymore → auto-downgrade.
+          await convex.mutation(api.users.setTierBySource, {
+            secret: CONVEX_SECRET,
+            userId,
+            tier: "free",
+            tierSource: "default",
+          });
+        }
+
+        return true;
+      } catch (err) {
+        console.error("[auth] Failed to sync user:", err);
         return false;
       }
-
-      // Step 2: read current tier_source so we know what we're allowed to overwrite.
-      // - `default` or `comp_email` → safe to overwrite from env allowlist
-      // - `stripe` or `comp_code` → don't touch; those have their own lifecycles
-      const { data: existing } = await db
-        .from("users")
-        .select("tier, tier_source")
-        .eq("id", userId)
-        .single();
-
-      const compTier = getCompTier(user.email);
-      const currentSource = (existing?.tier_source ?? "default") as
-        | "default"
-        | "comp_email"
-        | "comp_code"
-        | "stripe";
-
-      if (compTier) {
-        // Email is in allowlist → grant comp tier (overrides default/comp_email).
-        // Don't override stripe or comp_code; those are stronger.
-        if (currentSource === "default" || currentSource === "comp_email") {
-          await db
-            .from("users")
-            .update({ tier: compTier, tier_source: "comp_email" })
-            .eq("id", userId);
-        }
-      } else if (currentSource === "comp_email") {
-        // Email was previously in allowlist but isn't anymore → auto-downgrade.
-        // This is the whole reason tier_source exists.
-        await db
-          .from("users")
-          .update({ tier: "free", tier_source: "default" })
-          .eq("id", userId);
-      }
-
-      return true;
     },
     async session({ session, token }) {
       if (!token.sub) return session;
       session.user.id = token.sub;
-      const { data, error } = await db
-        .from("users")
-        .select("tier")
-        .eq("id", token.sub)
-        .single();
-      if (error) {
-        console.error("[auth] Failed to fetch user tier:", error);
+      try {
+        const data = await convex.query(api.users.getTier, {
+          secret: CONVEX_SECRET,
+          userId: token.sub,
+        });
+        session.user.tier = (data?.tier ?? "free") as "free" | "pro" | "business";
+      } catch (err) {
+        console.error("[auth] Failed to fetch user tier:", err);
+        session.user.tier = "free";
       }
-      session.user.tier = (data?.tier ?? "free") as "free" | "pro" | "business";
       return session;
     },
     async jwt({ token }) {

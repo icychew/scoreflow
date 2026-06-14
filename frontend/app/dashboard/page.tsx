@@ -1,6 +1,6 @@
 import { auth } from "@/lib/auth";
 import { redirect } from "next/navigation";
-import { db } from "@/lib/db";
+import { convex, api, CONVEX_SECRET } from "@/lib/convex";
 import { getTierLimits, getMonthlyUsage } from "@/lib/usage";
 import { isAdmin } from "@/lib/comp";
 import Link from "next/link";
@@ -15,21 +15,22 @@ export default async function DashboardPage() {
   const session = await auth();
   if (!session?.user?.id) redirect("/signin");
 
-  const [transcriptionsRes, used] = await Promise.all([
-    db
-      .from("transcriptions")
-      .select("id, job_id, filename, title, status, created_at")
-      .eq("user_id", session.user.id)
-      .order("created_at", { ascending: false })
-      .limit(50),
-    getMonthlyUsage(session.user.id),
-  ]);
-
-  if (transcriptionsRes.error) {
-    console.error("[dashboard] Failed to load transcriptions:", transcriptionsRes.error);
+  let transcriptions: DashboardItem[] = [];
+  let used = 0;
+  let transcriptionLoadFailed = false;
+  try {
+    [transcriptions, used] = await Promise.all([
+      convex.query(api.transcriptions.listByUser, {
+        secret: CONVEX_SECRET,
+        userId: session.user.id,
+        limit: 50,
+      }) as Promise<DashboardItem[]>,
+      getMonthlyUsage(session.user.id),
+    ]);
+  } catch (e) {
+    console.error("[dashboard] Failed to load transcriptions:", e);
+    transcriptionLoadFailed = true;
   }
-  const transcriptionLoadFailed = Boolean(transcriptionsRes.error);
-  const transcriptions = transcriptionsRes.data ?? [];
   const tier = session.user.tier;
   const limits = getTierLimits(tier);
   const remaining =
@@ -167,7 +168,7 @@ export default async function DashboardPage() {
             </div>
           </div>
         ) : (
-          <DashboardList items={transcriptions as DashboardItem[]} />
+          <DashboardList items={transcriptions} />
         )}
       </div>
     </div>

@@ -1,7 +1,7 @@
 import Link from "next/link";
 import type { Metadata } from "next";
 import { auth } from "@/lib/auth";
-import { db } from "@/lib/db";
+import { convex, api, CONVEX_SECRET } from "@/lib/convex";
 import PrintableScore from "@/components/PrintableScore";
 
 interface PageProps {
@@ -45,13 +45,9 @@ export default async function ScorePage({ params, searchParams }: PageProps) {
   let title = "Untitled";
 
   // Look up the transcription by job_id (regardless of who's asking)
-  const { data: trans } = await db
-    .from("transcriptions")
-    .select("id, user_id, filename, title")
-    .eq("job_id", jobId)
-    .maybeSingle();
-
-  const transcription = trans as TranscriptionRow | null;
+  const transcription = (await convex
+    .query(api.transcriptions.getByJobId, { secret: CONVEX_SECRET, jobId })
+    .catch(() => null)) as TranscriptionRow | null;
   if (transcription) {
     title = transcription.title || transcription.filename || "Untitled";
   }
@@ -67,12 +63,9 @@ export default async function ScorePage({ params, searchParams }: PageProps) {
 
   // Path 2: valid share token
   if (!authorized && token) {
-    const { data: share } = await db
-      .from("transcription_shares")
-      .select("job_id, expires_at")
-      .eq("token", token)
-      .maybeSingle();
-    const shareRow = share as ShareRow | null;
+    const shareRow = (await convex
+      .query(api.shares.getByToken, { secret: CONVEX_SECRET, token })
+      .catch(() => null)) as ShareRow | null;
     if (
       shareRow &&
       shareRow.job_id === jobId &&

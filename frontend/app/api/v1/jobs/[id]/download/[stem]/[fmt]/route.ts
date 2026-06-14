@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { authenticateApiRequest } from "@/lib/apiAuth";
-import { db } from "@/lib/db";
+import { convex, api, CONVEX_SECRET } from "@/lib/convex";
 
 const PIPELINE_API = process.env.NEXT_PUBLIC_API_URL?.trim() || "http://localhost:8000";
 
@@ -23,13 +23,11 @@ export async function GET(
   const { id, stem, fmt } = await params;
 
   // Verify ownership
-  const { data: trans } = await db
-    .from("transcriptions")
-    .select("id")
-    .eq("job_id", id)
-    .eq("user_id", result.auth.userId)
-    .maybeSingle();
-  if (!trans) {
+  const trans = await convex.query(api.transcriptions.getByJobId, {
+    secret: CONVEX_SECRET,
+    jobId: id,
+  });
+  if (!trans || trans.user_id !== result.auth.userId) {
     return NextResponse.json({ error: "Not found" }, { status: 404 });
   }
 

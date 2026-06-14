@@ -1,5 +1,5 @@
-// Mock db module before any imports so the env-var guards in db.ts don't throw
-jest.mock("@/lib/db", () => ({ db: {} }));
+// Mock the convex module before any imports so its env-var guard doesn't throw
+jest.mock("@/lib/convex", () => ({ convex: {}, api: {}, CONVEX_SECRET: "" }));
 
 import { getTierLimits, canTranscribeSync } from "./usage";
 

@@ -1,7 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { db } from "@/lib/db";
+import { convex, api, CONVEX_SECRET } from "@/lib/convex";
 import { generateCode, requireAdmin } from "@/lib/admin";
 
 interface CreateCodeInput {
@@ -18,28 +18,27 @@ export async function createCode(input: CreateCodeInput) {
   let code = "";
   for (let i = 0; i < 5; i++) {
     code = generateCode(input.tier === "business" ? "BIZ" : "PRO");
-    const { data: existing } = await db
-      .from("comp_codes")
-      .select("code")
-      .eq("code", code)
-      .maybeSingle();
+    const existing = await convex.query(api.compCodes.getByCode, {
+      secret: CONVEX_SECRET,
+      code,
+    });
     if (!existing) break;
   }
   if (!code) throw new Error("Could not generate a unique code; try again.");
 
   const expiresAt = input.expiresInDays
-    ? new Date(Date.now() + input.expiresInDays * 24 * 60 * 60 * 1000).toISOString()
-    : null;
+    ? Date.now() + input.expiresInDays * 24 * 60 * 60 * 1000
+    : undefined;
 
-  const { error } = await db.from("comp_codes").insert({
+  await convex.mutation(api.compCodes.create, {
+    secret: CONVEX_SECRET,
     code,
     tier: input.tier,
-    max_uses: Math.max(1, Math.floor(input.maxUses)),
-    expires_at: expiresAt,
-    created_by: session.user.id,
-    note: input.note?.trim() || null,
+    maxUses: Math.max(1, Math.floor(input.maxUses)),
+    expiresAt,
+    createdBy: session.user.id,
+    note: input.note?.trim() || undefined,
   });
-  if (error) throw error;
 
   revalidatePath("/admin/codes");
   return code;
@@ -49,11 +48,11 @@ export async function revokeCode(code: string) {
   await requireAdmin();
 
   // Soft revoke by setting expires_at to now — keeps audit history intact.
-  const { error } = await db
-    .from("comp_codes")
-    .update({ expires_at: new Date().toISOString() })
-    .eq("code", code);
-  if (error) throw error;
+  await convex.mutation(api.compCodes.setExpiresAt, {
+    secret: CONVEX_SECRET,
+    code,
+    expiresAt: Date.now(),
+  });
 
   revalidatePath("/admin/codes");
 }

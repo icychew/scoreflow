@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
-import { db } from "@/lib/db";
+import { convex, api, CONVEX_SECRET } from "@/lib/convex";
 
 const MAX_TITLE_LEN = 120;
 
@@ -40,25 +40,27 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
   }
 
   // Verify ownership before update — this is also a guard against IDOR.
-  const { data: existing, error: fetchErr } = await db
-    .from("transcriptions")
-    .select("id, user_id")
-    .eq("job_id", id)
-    .eq("user_id", session.user.id)
-    .maybeSingle();
-  if (fetchErr) {
+  let existing;
+  try {
+    existing = await convex.query(api.transcriptions.getByJobId, {
+      secret: CONVEX_SECRET,
+      jobId: id,
+    });
+  } catch (fetchErr) {
     console.error("[PATCH /api/jobs/:id] lookup failed:", fetchErr);
     return NextResponse.json({ error: "Server error" }, { status: 500 });
   }
-  if (!existing) {
+  if (!existing || existing.user_id !== session.user.id) {
     return NextResponse.json({ error: "Not found" }, { status: 404 });
   }
 
-  const { error: updateErr } = await db
-    .from("transcriptions")
-    .update({ title })
-    .eq("id", existing.id);
-  if (updateErr) {
+  try {
+    await convex.mutation(api.transcriptions.updateTitleById, {
+      secret: CONVEX_SECRET,
+      id: existing.id,
+      title,
+    });
+  } catch (updateErr) {
     console.error("[PATCH /api/jobs/:id] update failed:", updateErr);
     return NextResponse.json({ error: "Server error" }, { status: 500 });
   }

@@ -1,4 +1,4 @@
-import { db } from "@/lib/db";
+import { convex, api, CONVEX_SECRET } from "@/lib/convex";
 
 export type Tier = "free" | "pro" | "business";
 
@@ -31,14 +31,11 @@ export async function getMonthlyUsage(userId: string): Promise<number> {
   monthStart.setUTCDate(1);
   monthStart.setUTCHours(0, 0, 0, 0);
 
-  const { count, error } = await db
-    .from("transcriptions")
-    .select("id", { count: "exact", head: true })
-    .eq("user_id", userId)
-    .gte("created_at", monthStart.toISOString());
-
-  if (error) throw error;
-  return count ?? 0;
+  return await convex.query(api.transcriptions.monthlyUsageByUser, {
+    secret: CONVEX_SECRET,
+    userId,
+    since: monthStart.getTime(),
+  });
 }
 
 /** Get monthly usage count for an anonymous session token */
@@ -47,14 +44,11 @@ export async function getAnonymousUsage(sessionToken: string): Promise<number> {
   monthStart.setUTCDate(1);
   monthStart.setUTCHours(0, 0, 0, 0);
 
-  const { count, error } = await db
-    .from("transcriptions")
-    .select("id", { count: "exact", head: true })
-    .eq("session_token", sessionToken)
-    .gte("created_at", monthStart.toISOString());
-
-  if (error) throw error;
-  return count ?? 0;
+  return await convex.query(api.transcriptions.monthlyUsageBySession, {
+    secret: CONVEX_SECRET,
+    sessionToken,
+    since: monthStart.getTime(),
+  });
 }
 
 /** Record a new transcription in the DB */
@@ -69,14 +63,13 @@ export async function recordTranscription({
   jobId: string;
   filename: string;
 }): Promise<void> {
-  const { error } = await db.from("transcriptions").insert({
-    user_id: userId ?? null,
-    session_token: sessionToken ?? null,
-    job_id: jobId,
+  await convex.mutation(api.transcriptions.record, {
+    secret: CONVEX_SECRET,
+    userId,
+    sessionToken,
+    jobId,
     filename,
-    status: "processing",
   });
-  if (error) throw error;
 }
 
 /** Update transcription status after job completes */
@@ -84,9 +77,9 @@ export async function updateTranscriptionStatus(
   jobId: string,
   status: "done" | "failed"
 ): Promise<void> {
-  const { error } = await db
-    .from("transcriptions")
-    .update({ status })
-    .eq("job_id", jobId);
-  if (error) throw error;
+  await convex.mutation(api.transcriptions.updateStatusByJobId, {
+    secret: CONVEX_SECRET,
+    jobId,
+    status,
+  });
 }

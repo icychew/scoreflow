@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { randomBytes } from "node:crypto";
 import { auth } from "@/lib/auth";
-import { db } from "@/lib/db";
+import { convex, api, CONVEX_SECRET } from "@/lib/convex";
 
 const DEFAULT_EXPIRY_DAYS = 30;
 
@@ -38,17 +38,17 @@ export async function POST(req: Request) {
   }
 
   // Verify ownership
-  const { data: trans, error: fetchErr } = await db
-    .from("transcriptions")
-    .select("id, status")
-    .eq("job_id", jobId)
-    .eq("user_id", session.user.id)
-    .maybeSingle();
-  if (fetchErr) {
+  let trans;
+  try {
+    trans = await convex.query(api.transcriptions.getByJobId, {
+      secret: CONVEX_SECRET,
+      jobId,
+    });
+  } catch (fetchErr) {
     console.error("[POST /api/share] lookup failed:", fetchErr);
     return NextResponse.json({ error: "Server error" }, { status: 500 });
   }
-  if (!trans) {
+  if (!trans || trans.user_id !== session.user.id) {
     return NextResponse.json({ error: "Not found" }, { status: 404 });
   }
   if (trans.status !== "done") {
@@ -59,18 +59,19 @@ export async function POST(req: Request) {
   }
 
   const token = generateToken();
-  const expiresAt = new Date(
-    Date.now() + DEFAULT_EXPIRY_DAYS * 24 * 60 * 60 * 1000,
-  ).toISOString();
+  const expiresAtMs = Date.now() + DEFAULT_EXPIRY_DAYS * 24 * 60 * 60 * 1000;
+  const expiresAt = new Date(expiresAtMs).toISOString();
 
-  const { error: insertErr } = await db.from("transcription_shares").insert({
-    token,
-    job_id: jobId,
-    transcription_id: trans.id,
-    created_by: session.user.id,
-    expires_at: expiresAt,
-  });
-  if (insertErr) {
+  try {
+    await convex.mutation(api.shares.create, {
+      secret: CONVEX_SECRET,
+      token,
+      jobId,
+      transcriptionId: trans.id,
+      createdBy: session.user.id,
+      expiresAt: expiresAtMs,
+    });
+  } catch (insertErr) {
     console.error("[POST /api/share] insert failed:", insertErr);
     return NextResponse.json({ error: "Server error" }, { status: 500 });
   }
