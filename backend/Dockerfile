@@ -15,15 +15,20 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # Create non-root user — required by Hugging Face Spaces
 RUN useradd -m -u 1000 appuser
 
-# Install Python deps first (better layer caching)
+# Install CPU-only torch FIRST so demucs doesn't pull the multi-GB CUDA build.
+# This is the single biggest build-time and image-size saving on CPU-only
+# hosts (HF Spaces free tier) — the CUDA wheels are ~2.5 GB and were causing
+# the Space's Docker build to hit "Job timeout". torchaudio 2.11's torchcodec
+# backend is handled by separator.py's soundfile fallback.
+RUN pip install --no-cache-dir torch torchaudio --index-url https://download.pytorch.org/whl/cpu
+
+# Install Python deps (torch is already satisfied by the CPU install above)
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Pre-download Demucs htdemucs model (~80 MB) so the first job isn't slow
-RUN python -c "from demucs.pretrained import get_model; get_model('htdemucs'); print('Demucs model cached')" || echo "Demucs pre-download skipped"
-
-# Pre-download Basic Pitch ONNX model
-RUN python -c "import basic_pitch; print('Basic Pitch model path:', basic_pitch.__file__)" || echo "Basic Pitch pre-download skipped"
+# NOTE: Demucs/Basic Pitch models are downloaded lazily on the first job
+# instead of at build time. Pre-downloading them here previously pushed the
+# free-tier build past its timeout; the small first-job delay is the trade-off.
 
 # Jobs directory owned by appuser
 RUN mkdir -p /tmp/scoreflow-jobs && chown appuser:appuser /tmp/scoreflow-jobs
@@ -32,7 +37,9 @@ COPY --chown=appuser:appuser . .
 
 USER appuser
 
-# Hugging Face Spaces requires port 7860; Render/Railway use $PORT
+# Hugging Face Spaces routes to port 7860 (see README.md `app_port`). Other
+# PaaS (Cloud Run / Railway / Render) inject $PORT; default to 7860 so the HF
+# Space works out of the box and `${PORT:-7860}` picks up any injected value.
 ENV PORT=7860
 EXPOSE 7860
 

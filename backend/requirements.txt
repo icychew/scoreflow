@@ -24,8 +24,11 @@ librosa>=0.10.0
 # YouTube link ingestion
 yt-dlp>=2024.1.0
 
-# High Quality mode (optional — used by quality="high" only)
-audio-separator>=0.23.0
+# High Quality mode (optional — used by quality="high" only).
+# Lazy-imported in separator.py; omitted from the default image to keep the
+# HF Spaces free-tier Docker build under its timeout. Install manually to
+# enable HQ separation: `pip install audio-separator>=0.23.0`
+# audio-separator>=0.23.0
 # piano-transcription-inference: latest versions require Python 3.9-3.10
 # but Cloud Run runs Python 3.11 via python:3.11-slim. The pipeline
 # imports this lazily inside transcribe_piano_hq() and falls back with a
@@ -34,5 +37,8 @@ audio-separator>=0.23.0
 # manually: `pip install piano-transcription-inference>=0.0.21`.
 # piano-transcription-inference>=0.0.21
 
-# OMR validation
-inference>=0.9.0
+# OMR validation (optional — Roboflow). Lazy-imported in omr_validator.py,
+# which returns -1.0 (skip) if the package or ROBOFLOW_API_KEY is absent.
+# Omitted from the default image to keep the HF build under its timeout.
+# Install manually to enable OMR confidence scoring: `pip install inference>=0.9.0`
+# inference>=0.9.0
