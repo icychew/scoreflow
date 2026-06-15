@@ -29,3 +29,13 @@ frontend/.vercel/
 # OS
 .DS_Store
 Thumbs.db
+
+# Accuracy benchmark — local-only env + generated artifacts.
+# NOTE: calibrated_configs.json is intentionally NOT ignored — a real-dataset
+# calibration is meant to be committed so the transcriber auto-loads it. Do
+# NOT commit a calibration derived from the synthetic --synthesize samples;
+# those overfit clean sine-wave audio and degrade real recordings.
+backend/.venv-bench/
+backend/tests/benchmark/test_samples/
+backend/tests/benchmark/benchmark_results/
+backend/**/_smoke*.mid
