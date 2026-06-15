@@ -166,6 +166,7 @@ def _simplify_part(part, cfg: SimplifyConfig, key_obj):
         chord as m21_chord,
         clef as m21_clef,
         instrument as m21_instrument,
+        meter as m21_meter,
     )
 
     new_part = stream.Part()
@@ -248,6 +249,16 @@ def _simplify_part(part, cfg: SimplifyConfig, key_obj):
         except Exception as exc:  # noqa: BLE001
             logger.warning("Skipping element at offset %s: %s", el.offset, exc)
             continue
+
+    # Carry the source time signature into the new part BEFORE re-barring.
+    # Without it, makeMeasures() defaults to 4/4 and mis-bars 3/4, 6/8, 5/4,
+    # etc. in the simplified (easy/medium) variants.
+    try:
+        src_ts = part.recurse().getElementsByClass(m21_meter.TimeSignature)
+        if src_ts:
+            new_part.insert(0, m21_meter.TimeSignature(src_ts[0].ratioString))
+    except Exception as exc:
+        logger.warning("Could not carry source time signature: %s", exc)
 
     # Re-bar into measures so MusicXML output is clean
     try:
